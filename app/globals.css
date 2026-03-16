@@ -1,0 +1,440 @@
+:root {
+  --font-body: "Yu Gothic UI", "BIZ UDPGothic", "Segoe UI", sans-serif;
+  --font-display: "Bahnschrift", "Aptos Display", "Trebuchet MS", sans-serif;
+  --bg: #f4efe3;
+  --bg-deep: #17313a;
+  --surface: rgba(255, 252, 246, 0.88);
+  --surface-strong: #fffaf2;
+  --border: rgba(23, 49, 58, 0.12);
+  --text: #1f2d2f;
+  --muted: #5d6b6d;
+  --accent: #2c8b6b;
+  --accent-strong: #11644a;
+  --warning: #b55f36;
+  --danger: #9f3d31;
+  --shadow: 0 28px 60px rgba(20, 44, 49, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-body), sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(44, 139, 107, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(181, 95, 54, 0.15), transparent 30%),
+    linear-gradient(180deg, #fbf7ef 0%, var(--bg) 48%, #efe5d3 100%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.03em;
+}
+
+p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+code {
+  overflow-wrap: anywhere;
+}
+
+.shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.shell__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: linear-gradient(180deg, rgba(10, 29, 34, 0.96), rgba(23, 49, 58, 0.96));
+  color: #f4f0e8;
+}
+
+.brand-card,
+.nav-panel,
+.sidebar-surface {
+  border: 1px solid rgba(244, 240, 232, 0.12);
+  border-radius: 24px;
+  padding: 1.2rem;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+}
+
+.brand-kicker,
+.eyebrow {
+  margin-bottom: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.brand-card h1 {
+  font-size: 1.7rem;
+  line-height: 1.15;
+  margin-bottom: 0.8rem;
+}
+
+.nav-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.nav-link {
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  color: rgba(244, 240, 232, 0.72);
+  transition: 180ms ease;
+}
+
+.nav-link:hover,
+.nav-link--active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fffaf2;
+}
+
+.shell__main {
+  padding: 1.5rem;
+}
+
+.surface {
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.topbar,
+.hero-panel,
+.section-header,
+.quest-plan-card__header,
+.milestone-card__header,
+.quest-row,
+.event-row,
+.button-row,
+.pill-row,
+.hero-panel__actions,
+.topbar__stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.topbar {
+  margin-bottom: 1.5rem;
+  padding: 1.35rem 1.5rem;
+}
+
+.topbar h2 {
+  font-size: 1.5rem;
+}
+
+.topbar__stats > div {
+  min-width: 120px;
+  text-align: right;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.hero-panel {
+  padding: 1.6rem;
+  align-items: flex-end;
+}
+
+.hero-panel h1 {
+  margin-bottom: 0.75rem;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.lead,
+.muted {
+  color: var(--muted);
+}
+
+.hero-panel__actions,
+.button-row,
+.pill-row {
+  flex-wrap: wrap;
+}
+
+.button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.85rem 1.2rem;
+  font-weight: 700;
+  color: #fffefb;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
+.button--secondary {
+  color: var(--text);
+  background: #f3dfc8;
+}
+
+.button--ghost {
+  color: var(--accent-strong);
+  background: rgba(44, 139, 107, 0.1);
+}
+
+.stat-grid,
+.two-column,
+.form-grid,
+.form-grid--tight {
+  display: grid;
+  gap: 1rem;
+}
+
+.stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stat-card {
+  padding: 1.1rem;
+}
+
+.stat-value {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 1.8rem;
+}
+
+.two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.two-column--wide {
+  grid-template-columns: 0.95fr 1.05fr;
+}
+
+.form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid--tight {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.field--full {
+  grid-column: 1 / -1;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  border: 1px solid rgba(23, 49, 58, 0.14);
+  border-radius: 18px;
+  padding: 0.85rem 0.95rem;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--text);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.section-header {
+  margin-bottom: 1.2rem;
+}
+
+.stack-lg,
+.stack-md,
+.draft-stack,
+.quest-list,
+.event-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.stack-lg,
+.quest-list,
+.event-list {
+  gap: 1rem;
+}
+
+.stack-md,
+.draft-stack {
+  gap: 0.8rem;
+}
+
+.milestone-card,
+.quest-edit-card,
+.quest-plan-card,
+.quest-row,
+.event-row {
+  border: 1px solid rgba(23, 49, 58, 0.1);
+  border-radius: 22px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.quest-row--stack {
+  align-items: flex-start;
+}
+
+.quest-plan-card h3,
+.milestone-card h3,
+.quest-row h3 {
+  margin-bottom: 0.35rem;
+}
+
+.bullet-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.muted-list {
+  color: var(--muted);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  background: rgba(23, 49, 58, 0.08);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.pill--active,
+.pill--ready,
+.pill--heuristic,
+.pill--file,
+.pill--supabase,
+.pill--ai {
+  background: rgba(44, 139, 107, 0.14);
+  color: var(--accent-strong);
+}
+
+.pill--planned,
+.pill--draft,
+.pill--paused,
+.pill--medium {
+  background: rgba(243, 223, 200, 0.9);
+  color: #8a5d33;
+}
+
+.pill--blocked,
+.pill--open,
+.pill--high,
+.pill--abandoned {
+  background: rgba(181, 95, 54, 0.14);
+  color: var(--warning);
+}
+
+.pill--done,
+.pill--completed,
+.pill--resolved,
+.pill--low {
+  background: rgba(17, 100, 74, 0.12);
+  color: #155a44;
+}
+
+.feedback {
+  margin: 0;
+  border-radius: 18px;
+  padding: 0.9rem 1rem;
+  font-weight: 600;
+}
+
+.feedback--ok {
+  background: rgba(44, 139, 107, 0.1);
+  color: #155a44;
+}
+
+.feedback--error {
+  background: rgba(159, 61, 49, 0.1);
+  color: var(--danger);
+}
+
+@media (max-width: 1100px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .shell__sidebar {
+    padding-bottom: 0;
+  }
+
+  .stat-grid,
+  .two-column,
+  .two-column--wide,
+  .form-grid,
+  .form-grid--tight {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar,
+  .hero-panel,
+  .section-header,
+  .quest-plan-card__header,
+  .milestone-card__header,
+  .quest-row,
+  .event-row,
+  .button-row,
+  .hero-panel__actions,
+  .topbar__stats {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar__stats > div {
+    text-align: left;
+  }
+}
+

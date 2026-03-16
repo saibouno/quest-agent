@@ -1,0 +1,14 @@
+﻿.next
+node_modules
+.npm-cache
+.env
+.env.local
+.env.development.local
+.env.production.local
+coverage
+dist
+data/*.json
+!data/.gitkeep
+
+tsconfig.tsbuildinfo
+chatgpt-tread.md2.md
