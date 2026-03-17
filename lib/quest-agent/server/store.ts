@@ -1,119 +1,32 @@
-﻿import "server-only";
+import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 import { unstable_noStore as noStore } from "next/cache";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { emptyPersistedState, enrichState, makeId, nowIso } from "@/lib/quest-agent/derive";
+import { defaultUserProfile, emptyPersistedState, enrichState, makeId, nowIso } from "@/lib/quest-agent/derive";
+import { hasSupabaseConfig, shouldUseBrowserLocalPreview } from "@/lib/quest-agent/server/runtime";
 import type {
   AppState,
   Artifact,
   Blocker,
+  BlockerInput,
   Decision,
   Goal,
+  GoalInput,
   MapDraftMilestone,
+  MapInput,
   Milestone,
   PersistedState,
   Quest,
   QuestEvent,
   Review,
+  ReviewInput,
   TodayPlan,
 } from "@/lib/quest-agent/types";
 
-
 const fallbackPath = path.join(process.cwd(), "data", "quest-agent-fallback.json");
-
-type GoalInput = {
-  id?: string;
-  title: string;
-  description: string;
-  why: string;
-  deadline?: string | null;
-  successCriteria: string[];
-  currentState: string;
-  constraints: string[];
-  concerns: string;
-  todayCapacity: string;
-  status: Goal["status"];
-  refined?: boolean;
-};
-
-type MapInput = {
-  goalId: string;
-  routeSummary: string;
-  milestones: MapDraftMilestone[];
-  mode: "ai" | "heuristic";
-};
-
-type BlockerInput = {
-  goalId: string;
-  relatedQuestId?: string | null;
-  title: string;
-  description: string;
-  blockerType: Blocker["blockerType"];
-  severity: Blocker["severity"];
-  status: Blocker["status"];
-  suggestedNextStep: string;
-};
-
-type ReviewInput = {
-  goalId: string;
-  periodStart: string;
-  periodEnd: string;
-  summary: string;
-  learnings: string;
-  rerouteNote: string;
-  nextFocus: string;
-};
-
-function hasSupabaseConfig(): boolean {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
-}
-
-export function getStorageMode(): "supabase" | "file" {
-  return hasSupabaseConfig() ? "supabase" : "file";
-}
-
-export function isAiConfigured(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
-}
-
-function getSupabaseClient() {
-  if (!hasSupabaseConfig()) {
-    throw new Error("Supabase is not configured.");
-  }
-
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-async function ensureFallbackFile(): Promise<void> {
-  await fs.mkdir(path.dirname(fallbackPath), { recursive: true });
-  try {
-    await fs.access(fallbackPath);
-  } catch {
-    await fs.writeFile(fallbackPath, JSON.stringify(emptyPersistedState(), null, 2), "utf8");
-  }
-}
-
-async function readFallbackState(): Promise<PersistedState> {
-  await ensureFallbackFile();
-  const content = await fs.readFile(fallbackPath, "utf8");
-  return {
-    ...emptyPersistedState(),
-    ...JSON.parse(content),
-  } as PersistedState;
-}
-
-async function writeFallbackState(state: PersistedState): Promise<void> {
-  await ensureFallbackFile();
-  await fs.writeFile(fallbackPath, JSON.stringify(state, null, 2), "utf8");
-}
 
 type DbRow = Record<string, unknown>;
 
@@ -139,6 +52,18 @@ function asNullableNumber(value: unknown): number | null {
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function buildEvent(goalId: string, entityType: QuestEvent["entityType"], entityId: string, type: string, payload: Record<string, unknown>): QuestEvent {
+  return {
+    id: makeId(),
+    goalId,
+    entityType,
+    entityId,
+    type,
+    payload,
+    createdAt: nowIso(),
+  };
 }
 
 function toGoal(row: DbRow): Goal {
@@ -253,16 +178,49 @@ function toEvent(row: DbRow): QuestEvent {
   };
 }
 
-function buildEvent(goalId: string, entityType: QuestEvent["entityType"], entityId: string, type: string, payload: Record<string, unknown>): QuestEvent {
+function getSupabaseClient() {
+  if (!hasSupabaseConfig()) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+export function isAiConfigured(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY);
+}
+
+async function ensureFallbackFile(): Promise<void> {
+  await fs.mkdir(path.dirname(fallbackPath), { recursive: true });
+  try {
+    await fs.access(fallbackPath);
+  } catch {
+    await fs.writeFile(fallbackPath, JSON.stringify(emptyPersistedState(), null, 2), "utf8");
+  }
+}
+
+async function readFallbackState(): Promise<PersistedState> {
+  await ensureFallbackFile();
+  const content = await fs.readFile(fallbackPath, "utf8");
+  const parsed = JSON.parse(content) as Partial<PersistedState>;
   return {
-    id: makeId(),
-    goalId,
-    entityType,
-    entityId,
-    type,
-    payload,
-    createdAt: nowIso(),
+    ...emptyPersistedState(),
+    ...parsed,
+    userProfile: {
+      ...defaultUserProfile(),
+      ...(parsed.userProfile ?? {}),
+    },
   };
+}
+
+async function writeFallbackState(state: PersistedState): Promise<void> {
+  await ensureFallbackFile();
+  await fs.writeFile(fallbackPath, JSON.stringify(state, null, 2), "utf8");
 }
 
 async function readSupabaseState(): Promise<PersistedState> {
@@ -294,11 +252,16 @@ async function readSupabaseState(): Promise<PersistedState> {
     decisions: (decisionsRes.data ?? []).map(toDecision),
     artifacts: (artifactsRes.data ?? []).map(toArtifact),
     events: (eventsRes.data ?? []).map(toEvent),
+    userProfile: defaultUserProfile(),
   };
 }
 
 export async function getAppState(): Promise<AppState> {
   noStore();
+  if (shouldUseBrowserLocalPreview()) {
+    return enrichState(emptyPersistedState());
+  }
+
   const state = hasSupabaseConfig() ? await readSupabaseState() : await readFallbackState();
   return enrichState(state);
 }
@@ -422,6 +385,7 @@ export async function saveGoal(input: GoalInput): Promise<Goal> {
   const response = input.id
     ? await supabase.from("goals").update(payload).eq("id", input.id).select("*").single()
     : await supabase.from("goals").insert(payload).select("*").single();
+
   if (response.error || !response.data) {
     throw new Error(response.error?.message ?? "Failed to save goal.");
   }
@@ -441,7 +405,7 @@ export async function saveGoal(input: GoalInput): Promise<Goal> {
 
 export async function replaceMap(input: MapInput): Promise<void> {
   const now = nowIso();
-  const milestoneRecords = input.milestones.map((milestone, index) => ({
+  const milestoneRecords = input.milestones.map((milestone: MapDraftMilestone, index) => ({
     id: makeId(),
     goalId: input.goalId,
     title: milestone.title,
@@ -692,9 +656,3 @@ export async function recordTodayPlan(goalId: string, plan: TodayPlan): Promise<
 
   await insertSupabaseEvents([event]);
 }
-
-
-
-
-
-

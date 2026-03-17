@@ -1,4 +1,4 @@
-﻿import { redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { getAppState } from "@/lib/quest-agent/server/store";
 
