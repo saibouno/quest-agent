@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { generateBlockerReroute } from "@/lib/quest-agent/server/ai";
 import { getAppState } from "@/lib/quest-agent/server/store";
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     }
 
     const state = await getAppState();
-    const goal = state.goals.find((item) => item.id === payload.data.goalId);
+    const goal = payload.data.goalSnapshot ?? (payload.data.goalId ? state.goals.find((item) => item.id === payload.data.goalId) : null);
     if (!goal) {
       return NextResponse.json({ error: "Goal not found." }, { status: 404 });
     }

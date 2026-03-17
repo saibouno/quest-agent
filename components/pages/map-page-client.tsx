@@ -1,15 +1,17 @@
-﻿"use client";
+"use client";
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
-import type { AppState, MapDraft } from "@/lib/quest-agent/types";
+import type { MapDraft } from "@/lib/quest-agent/types";
 
-export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled: boolean }) {
+export function MapPageClient() {
   const router = useRouter();
+  const { state, aiEnabled, clientStorageMode, generateMap, replaceMap } = useQuestAgent();
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<MapDraft | null>(null);
   const [message, setMessage] = useState("");
@@ -19,10 +21,10 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
     return (
       <SectionCard>
         <p className="eyebrow">Quest Map</p>
-        <h1>先に Goal Intake を完了してください。</h1>
-        <p className="muted">goal がないと route を作れません。</p>
+        <h1>Complete Quest Intake first.</h1>
+        <p className="muted">You need one active goal before the agent can draft a route.</p>
         <Link className="button" href="/intake">
-          Quest Intake へ戻る
+          Back to Quest Intake
         </Link>
       </SectionCard>
     );
@@ -43,7 +45,12 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
     });
   }
 
-  function updateQuest(milestoneIndex: number, questIndex: number, field: "title" | "description" | "priority" | "dueDate" | "estimatedMinutes" | "questType", value: string) {
+  function updateQuest(
+    milestoneIndex: number,
+    questIndex: number,
+    field: "title" | "description" | "priority" | "dueDate" | "estimatedMinutes" | "questType",
+    value: string,
+  ) {
     setDraft((current) => {
       if (!current) {
         return current;
@@ -66,28 +73,23 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
     setMessage("");
     setError("");
     startTransition(async () => {
-      const response = await fetch("/api/ai/generate-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goalId: state.currentGoal?.id,
-          title: state.currentGoal?.title,
-          description: state.currentGoal?.description,
-          why: state.currentGoal?.why,
-          deadline: state.currentGoal?.deadline,
-          successCriteria: state.currentGoal?.successCriteria,
-          currentState: state.currentGoal?.currentState,
-          constraints: state.currentGoal?.constraints,
-          concerns: state.currentGoal?.concerns,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Quest Map generation failed.");
-        return;
+      try {
+        const nextDraft = await generateMap({
+          goalId: state.currentGoal!.id,
+          title: state.currentGoal!.title,
+          description: state.currentGoal!.description,
+          why: state.currentGoal!.why,
+          deadline: state.currentGoal!.deadline,
+          successCriteria: state.currentGoal!.successCriteria,
+          currentState: state.currentGoal!.currentState,
+          constraints: state.currentGoal!.constraints,
+          concerns: state.currentGoal!.concerns,
+        });
+        setDraft(nextDraft);
+        setMessage(nextDraft.mode === "ai" ? "AI drafted a route." : "Heuristic mode drafted a route.");
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Quest Map generation failed.");
       }
-      setDraft(payload.data as MapDraft);
-      setMessage(payload.data.mode === "ai" ? "AI が route draft を作成しました。" : "Heuristic mode で route draft を作成しました。");
     });
   }
 
@@ -98,24 +100,21 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
     setMessage("");
     setError("");
     startTransition(async () => {
-      const response = await fetch("/api/map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goalId: state.currentGoal?.id,
+      try {
+        await replaceMap({
+          goalId: state.currentGoal!.id,
           routeSummary: draft.routeSummary,
           milestones: draft.milestones,
           mode: draft.mode,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Failed to save Quest Map.");
-        return;
+        });
+        setMessage("Quest Map saved. Next, decide today's route.");
+        if (clientStorageMode === "server-backed") {
+          router.refresh();
+        }
+        router.push("/today");
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Failed to save Quest Map.");
       }
-      setMessage("Quest Map を保存しました。次は Today&apos;s Quests で今日の route を決めます。");
-      router.refresh();
-      router.push("/today");
     });
   }
 
@@ -124,15 +123,15 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">Quest Map</p>
-          <h1>Goal を milestone と quest に分解する。</h1>
-          <p className="lead">完全な計画ではなく、今日から動ける仮 route を作ります。後から review と blocker で直せる前提です。</p>
+          <h1>Break the goal into milestones and quests.</h1>
+          <p className="lead">This does not need to be perfect. Build a route you can start, then improve it through review and reroute.</p>
         </div>
         <div className="hero-panel__actions">
           <button className="button" onClick={handleGenerate} disabled={isPending} type="button">
-            {aiEnabled ? "AI で route を生成" : "Heuristic で route を生成"}
+            {aiEnabled ? "Generate with AI" : "Generate heuristically"}
           </button>
           <button className="button button--secondary" onClick={handleSave} disabled={isPending || !draft} type="button">
-            Route を保存
+            Save Route
           </button>
         </div>
       </section>
@@ -183,7 +182,7 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
               })}
             </div>
           ) : (
-            <p className="muted">まだ route は保存されていません。まず draft を作って保存します。</p>
+            <p className="muted">No saved route yet. Generate a draft and save it.</p>
           )}
         </SectionCard>
 
@@ -191,7 +190,7 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
           <div className="section-header">
             <div>
               <p className="eyebrow">Editable Draft</p>
-              <h2>叩き台をその場で整える</h2>
+              <h2>Tune the route before saving</h2>
             </div>
           </div>
 
@@ -262,11 +261,10 @@ export function MapPageClient({ state, aiEnabled }: { state: AppState; aiEnabled
               ))}
             </div>
           ) : (
-            <p className="muted">route draft を生成すると、ここで milestone と quest を編集してから保存できます。</p>
+            <p className="muted">Generate a route draft to edit milestones and quests here.</p>
           )}
         </SectionCard>
       </div>
     </div>
   );
 }
-

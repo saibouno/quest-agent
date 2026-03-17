@@ -1,9 +1,7 @@
-﻿import { ReviewPageClient } from "@/components/pages/review-page-client";
-import { getAppState } from "@/lib/quest-agent/server/store";
+import { ReviewPageClient } from "@/components/pages/review-page-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewPage() {
-  const state = await getAppState();
-  return <ReviewPageClient state={state} />;
+export default function ReviewPage() {
+  return <ReviewPageClient />;
 }

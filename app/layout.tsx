@@ -1,30 +1,29 @@
 import type { Metadata } from "next";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { getAppState, getStorageMode, isAiConfigured } from "@/lib/quest-agent/server/store";
+import { QuestAgentProvider } from "@/components/providers/quest-agent-provider";
+import { getBackendModeLabel, getClientStorageHint } from "@/lib/quest-agent/server/runtime";
+import { getAppState, isAiConfigured } from "@/lib/quest-agent/server/store";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Quest Agent v0.1",
+  title: "Quest Agent v0.2 scaffold",
   description: "Turn ambitious goals into executable daily quests.",
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const state = await getAppState();
-  const summary = {
-    currentGoalTitle: state.currentGoal?.title ?? "No active goal yet",
-    nextStepTitle: state.todaySuggestions[0]?.title ?? "Quest Intake から開始",
-    openBlockers: state.stats.openBlockerCount,
-    momentum: `${state.stats.completedThisWeek} quests / 7 days`,
-    backendMode: getStorageMode(),
-    aiMode: isAiConfigured() ? "ai" : "heuristic",
-  } as const;
+  const storageHint = getClientStorageHint();
+  const backendMode = getBackendModeLabel();
+  const aiMode = isAiConfigured() ? "ai" : "heuristic";
 
   return (
     <html lang="ja">
       <body>
-        <AppShell summary={summary}>{children}</AppShell>
+        <QuestAgentProvider aiMode={aiMode} initialBackendMode={backendMode} initialState={state} storageHint={storageHint}>
+          <AppShell>{children}</AppShell>
+        </QuestAgentProvider>
       </body>
     </html>
   );
