@@ -11,6 +11,7 @@ const toneMap: Record<string, string> = {
   in_progress: "pill pill--ready",
   completed: "pill pill--done",
   blocked: "pill pill--blocked",
+  overdue: "pill pill--blocked",
   open: "pill pill--blocked",
   resolved: "pill pill--done",
   high: "pill pill--blocked",

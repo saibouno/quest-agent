@@ -1,12 +1,12 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
+import { DisclosureSection } from "@/components/shared/disclosure-section";
 import { SectionCard } from "@/components/shared/section-card";
-import { StatStrip } from "@/components/shared/stat-strip";
 import { StatusPill } from "@/components/shared/status-pill";
 import { findLatestArtifactNoteForGoal, findLatestDoneWhenForGoal } from "@/lib/quest-agent/derive";
 import { getCopy, getLabel, interpolate, localizeRuntimeError } from "@/lib/quest-agent/copy";
@@ -16,7 +16,7 @@ function formatResumeHours(locale: "ja" | "en", value: number | null): string {
   if (value === null) {
     return "-";
   }
-  return locale === "ja" ? `${value.toFixed(1)}時間` : `${value.toFixed(1)}h`;
+  return interpolate(getCopy(locale).common.durationHours, { value: value.toFixed(1) });
 }
 
 function formatResumeTrigger(locale: "ja" | "en", triggerType: ResumeTriggerType, value: string): string {
@@ -49,10 +49,12 @@ export function PortfolioPageClient() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [wipLimit, setWipLimit] = useState(String(state.portfolioSettings.wipLimit));
-  const [switchReason, setSwitchReason] = useState(locale === "ja" ? "今週はいちばんこれを前に置きたいから。" : "This deserves the front slot this week.");
-  const [resumeReason, setResumeReason] = useState(locale === "ja" ? "再開条件がそろったから。" : "The restart trigger is now clear.");
+  const [switchReason, setSwitchReason] = useState<string>(copy.portfolio.defaults.switchReason);
+  const [resumeReason, setResumeReason] = useState<string>(copy.portfolio.defaults.resumeReason);
   const [parkingGoalId, setParkingGoalId] = useState<string | null>(null);
   const [parkingForm, setParkingForm] = useState(defaultParkingForm());
+  const [expandedGoalIds, setExpandedGoalIds] = useState<string[]>([]);
+  const [expandedQueueIds, setExpandedQueueIds] = useState<string[]>([]);
 
   const runnableGoals = useMemo(
     () => state.goals.filter((goal) => goal.status !== "completed"),
@@ -68,17 +70,10 @@ export function PortfolioPageClient() {
     [state.resumeQueue],
   );
 
-  const stats = useMemo(
-    () => [
-      { label: copy.portfolio.stats.focusGoal, value: state.focusGoal ? 1 : 0, detail: state.focusGoal?.title ?? copy.portfolio.focusEmpty },
-      { label: copy.portfolio.stats.activeGoals, value: `${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit}`, detail: copy.portfolio.details.currentActiveCount },
-      { label: copy.portfolio.stats.resumeQueue, value: state.portfolioStats.resumeQueueCount, detail: copy.portfolio.details.resumeQueue },
-      { label: copy.portfolio.stats.switches, value: state.switchSummary.switchesThisWeek, detail: copy.portfolio.details.recordedThisWeek },
-      { label: copy.portfolio.stats.medianResume, value: formatResumeHours(locale, state.switchSummary.medianResumeHours), detail: copy.portfolio.details.restartDelay },
-      { label: copy.portfolio.stats.reviewRate, value: `${state.switchSummary.reviewCompletionRate}%`, detail: copy.portfolio.details.last4Weeks },
-    ],
-    [copy, locale, state],
-  );
+  const openResumeQueueFirst = state.resumeQueue.length > 0;
+  const openActiveFirst = !openResumeQueueFirst && state.activeGoals.length > 0;
+  const focusSummary = `${copy.portfolio.stats.activeGoals} ${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit} ・ ${copy.portfolio.stats.resumeQueue} ${state.resumeQueue.length}`;
+  const settingsSummary = `${copy.portfolio.stats.activeGoals} ${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit} ・ ${copy.portfolio.stats.medianResume} ${formatResumeHours(locale, state.switchSummary.medianResumeHours)}`;
 
   function refreshIfNeeded() {
     if (clientStorageMode === "server-backed") {
@@ -93,6 +88,14 @@ export function PortfolioPageClient() {
     );
   }
 
+  function toggleGoalDetails(goalId: string) {
+    setExpandedGoalIds((current) => (current.includes(goalId) ? current.filter((item) => item !== goalId) : [...current, goalId]));
+  }
+
+  function toggleQueueDetails(queueId: string) {
+    setExpandedQueueIds((current) => (current.includes(queueId) ? current.filter((item) => item !== queueId) : [...current, queueId]));
+  }
+
   function handleSaveWip() {
     setError("");
     setMessage("");
@@ -102,7 +105,7 @@ export function PortfolioPageClient() {
         setMessage(copy.portfolio.messages.limitSaved);
         refreshIfNeeded();
       } catch (nextError) {
-        setError(localizeRuntimeError(locale, nextError, locale === "ja" ? "同時進行数を更新できませんでした。" : "Failed to update active goal limit."));
+        setError(localizeRuntimeError(locale, nextError, copy.portfolio.errors.limitSave));
       }
     });
   }
@@ -112,11 +115,11 @@ export function PortfolioPageClient() {
     setMessage("");
     startTransition(async () => {
       try {
-        await selectFocusGoal({ goalId, reason: switchReason.trim() || (locale === "ja" ? "今はこれがいちばん重要だから。" : "This goal now matters most.") });
+        await selectFocusGoal({ goalId, reason: switchReason.trim() || copy.portfolio.defaults.focusFallback });
         setMessage(copy.portfolio.messages.focusSaved);
         refreshIfNeeded();
       } catch (nextError) {
-        setError(localizeRuntimeError(locale, nextError, locale === "ja" ? "本丸を切り替えられませんでした。" : "Failed to change focus goal."));
+        setError(localizeRuntimeError(locale, nextError, copy.portfolio.errors.focusSave));
       }
     });
   }
@@ -126,11 +129,11 @@ export function PortfolioPageClient() {
     setMessage("");
     startTransition(async () => {
       try {
-        await resumeGoal({ goalId, reason: resumeReason.trim() || (locale === "ja" ? "再開条件がそろったから。" : "The restart trigger is now clear.") });
+        await resumeGoal({ goalId, reason: resumeReason.trim() || copy.portfolio.defaults.resumeFallback });
         setMessage(copy.portfolio.messages.resumeSaved);
         refreshIfNeeded();
       } catch (nextError) {
-        setError(localizeRuntimeError(locale, nextError, locale === "ja" ? "再開できませんでした。" : "Failed to resume goal."));
+        setError(localizeRuntimeError(locale, nextError, copy.portfolio.errors.resumeSave));
       }
     });
   }
@@ -154,7 +157,7 @@ export function PortfolioPageClient() {
         setMessage(copy.portfolio.messages.parkedSaved);
         refreshIfNeeded();
       } catch (nextError) {
-        setError(localizeRuntimeError(locale, nextError, locale === "ja" ? "保留にできませんでした。" : "Failed to park goal."));
+        setError(localizeRuntimeError(locale, nextError, copy.portfolio.errors.parkSave));
       }
     });
   }
@@ -168,9 +171,67 @@ export function PortfolioPageClient() {
         <div className="stack-md">
           <div className="pill-row">
             <StatusPill label={item.resumeTriggerType} />
-            {item.isOverdue ? <StatusPill label="blocked" /> : null}
+            {item.isOverdue ? <StatusPill label="overdue" /> : null}
           </div>
           <p><strong>{copy.portfolio.queue.trigger}:</strong> {formatResumeTrigger(locale, item.resumeTriggerType, item.resumeTriggerText)}</p>
+        </div>
+      </div>
+    );
+  }
+
+  function renderParkingForm(goalId: string) {
+    return (
+      <div className="form-grid portfolio-form-grid">
+        <label className="field">
+          <span>{copy.portfolio.fields.stopMode}</span>
+          <select className="input" value={parkingForm.stopMode} onChange={(event) => setParkingForm((current) => ({ ...current, stopMode: event.target.value }))}>
+            <option value="hold">{getLabel(locale, "hold")}</option>
+            <option value="shrink">{getLabel(locale, "shrink")}</option>
+            <option value="cancel">{getLabel(locale, "cancel")}</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>{copy.portfolio.fields.resumeTrigger}</span>
+          <select className="input" value={parkingForm.resumeTriggerType} onChange={(event) => setParkingForm((current) => ({ ...current, resumeTriggerType: event.target.value }))}>
+            <option value="manual">{getLabel(locale, "manual")}</option>
+            <option value="date">{getLabel(locale, "date")}</option>
+            <option value="condition">{getLabel(locale, "condition")}</option>
+          </select>
+        </label>
+        <label className="field field--full">
+          <span>{copy.portfolio.fields.whyStopNow}</span>
+          <textarea className="textarea" rows={2} value={parkingForm.reason} onChange={(event) => setParkingForm((current) => ({ ...current, reason: event.target.value }))} />
+        </label>
+        <label className="field field--full">
+          <span>{copy.portfolio.fields.parkingNote}</span>
+          <textarea className="textarea" rows={3} value={parkingForm.parkingNote} onChange={(event) => setParkingForm((current) => ({ ...current, parkingNote: event.target.value }))} placeholder={copy.portfolio.fields.parkingNotePlaceholder} />
+        </label>
+        <label className="field field--full">
+          <span>{copy.portfolio.fields.nextRestartStep}</span>
+          <textarea className="textarea" rows={2} value={parkingForm.nextRestartStep} onChange={(event) => setParkingForm((current) => ({ ...current, nextRestartStep: event.target.value }))} />
+        </label>
+        <label className="field field--full">
+          <span>{copy.portfolio.fields.triggerDetail}</span>
+          <textarea className="textarea" rows={2} value={parkingForm.resumeTriggerText} onChange={(event) => setParkingForm((current) => ({ ...current, resumeTriggerText: event.target.value }))} placeholder={copy.portfolio.fields.triggerPlaceholder} />
+        </label>
+        <div className="button-row field--full">
+          <button
+            className="button"
+            disabled={
+              isPending ||
+              !parkingForm.reason.trim() ||
+              !parkingForm.parkingNote.trim() ||
+              !parkingForm.nextRestartStep.trim() ||
+              !parkingForm.resumeTriggerText.trim()
+            }
+            onClick={() => handlePark(goalId)}
+            type="button"
+          >
+            {copy.portfolio.buttons.saveParkingNote}
+          </button>
+          <button className="button button--ghost" disabled={isPending} onClick={() => setParkingGoalId(null)} type="button">
+            {copy.common.cancel}
+          </button>
         </div>
       </div>
     );
@@ -179,6 +240,8 @@ export function PortfolioPageClient() {
   function renderGoalCard(goal: Goal) {
     const queueItem = parkedLookup.get(goal.id);
     const isFocus = state.focusGoal?.id === goal.id;
+    const isExpanded = expandedGoalIds.includes(goal.id) || parkingGoalId === goal.id;
+
     return (
       <div className="portfolio-card" key={goal.id}>
         <div className="portfolio-card__header">
@@ -187,95 +250,50 @@ export function PortfolioPageClient() {
               {isFocus ? <StatusPill label="active" /> : null}
               <StatusPill label={goal.status} />
               {queueItem ? <StatusPill label={queueItem.stopMode} /> : null}
+              {queueItem?.isOverdue ? <StatusPill label="overdue" /> : null}
             </div>
             <h3>{goal.title}</h3>
-            <p className="muted">{goal.description || goal.currentState || copy.common.noSummary}</p>
+            <p className="muted">{queueItem?.reason || goal.description || goal.currentState || copy.common.noSummary}</p>
           </div>
           <div className="button-row">
-            {!isFocus ? (
-              <button className="button button--ghost" disabled={isPending} onClick={() => handleFocus(goal.id)} type="button">
-                {goal.status === "active" ? copy.portfolio.buttons.setFocus : copy.portfolio.buttons.activateAndFocus}
-              </button>
-            ) : (
-              <Link className="button button--ghost" href="/today">
-                {copy.common.openToday}
-              </Link>
-            )}
-            {!queueItem ? (
-              <button
-                className="button button--secondary"
-                disabled={isPending}
-                onClick={() => {
-                  setParkingGoalId(goal.id);
-                  setParkingForm(buildParkingDefaults(goal.id));
-                }}
-                type="button"
-              >
-                {copy.portfolio.buttons.parkGoal}
-              </button>
-            ) : (
+            {queueItem ? (
               <button className="button" disabled={isPending} onClick={() => handleResume(goal.id)} type="button">
                 {copy.portfolio.buttons.resumeGoal}
               </button>
+            ) : !isFocus ? (
+              <button className="button" disabled={isPending} onClick={() => handleFocus(goal.id)} type="button">
+                {goal.status === "active" ? copy.portfolio.buttons.setFocus : copy.portfolio.buttons.activateAndFocus}
+              </button>
+            ) : (
+              <Link className="button" href="/today">
+                {copy.common.openToday}
+              </Link>
             )}
+            <button className="button button--ghost" onClick={() => toggleGoalDetails(goal.id)} type="button">
+              {isExpanded ? copy.common.hideDetails : copy.common.showDetails}
+            </button>
           </div>
         </div>
 
-        {queueItem ? renderRestartDetails(queueItem) : null}
-
-        {parkingGoalId === goal.id ? (
-          <div className="form-grid portfolio-form-grid">
-            <label className="field">
-              <span>{copy.portfolio.fields.stopMode}</span>
-              <select className="input" value={parkingForm.stopMode} onChange={(event) => setParkingForm((current) => ({ ...current, stopMode: event.target.value }))}>
-                <option value="hold">{getLabel(locale, "hold")}</option>
-                <option value="shrink">{getLabel(locale, "shrink")}</option>
-                <option value="cancel">{getLabel(locale, "cancel")}</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>{copy.portfolio.fields.resumeTrigger}</span>
-              <select className="input" value={parkingForm.resumeTriggerType} onChange={(event) => setParkingForm((current) => ({ ...current, resumeTriggerType: event.target.value }))}>
-                <option value="manual">{getLabel(locale, "manual")}</option>
-                <option value="date">{getLabel(locale, "date")}</option>
-                <option value="condition">{getLabel(locale, "condition")}</option>
-              </select>
-            </label>
-            <label className="field field--full">
-              <span>{copy.portfolio.fields.whyStopNow}</span>
-              <textarea className="textarea" rows={2} value={parkingForm.reason} onChange={(event) => setParkingForm((current) => ({ ...current, reason: event.target.value }))} />
-            </label>
-            <label className="field field--full">
-              <span>{copy.portfolio.fields.parkingNote}</span>
-              <textarea className="textarea" rows={3} value={parkingForm.parkingNote} onChange={(event) => setParkingForm((current) => ({ ...current, parkingNote: event.target.value }))} placeholder={copy.portfolio.fields.parkingNotePlaceholder} />
-            </label>
-            <label className="field field--full">
-              <span>{copy.portfolio.fields.nextRestartStep}</span>
-              <textarea className="textarea" rows={2} value={parkingForm.nextRestartStep} onChange={(event) => setParkingForm((current) => ({ ...current, nextRestartStep: event.target.value }))} />
-            </label>
-            <label className="field field--full">
-              <span>{copy.portfolio.fields.triggerDetail}</span>
-              <textarea className="textarea" rows={2} value={parkingForm.resumeTriggerText} onChange={(event) => setParkingForm((current) => ({ ...current, resumeTriggerText: event.target.value }))} placeholder={copy.portfolio.fields.triggerPlaceholder} />
-            </label>
-            <div className="button-row field--full">
-              <button
-                className="button"
-                disabled={
-                  isPending ||
-                  !parkingForm.reason.trim() ||
-                  !parkingForm.parkingNote.trim() ||
-                  !parkingForm.nextRestartStep.trim() ||
-                  !parkingForm.resumeTriggerText.trim()
-                }
-                onClick={() => handlePark(goal.id)}
-                type="button"
-              >
-                {copy.portfolio.buttons.saveParkingNote}
-              </button>
-              <button className="button button--ghost" disabled={isPending} onClick={() => setParkingGoalId(null)} type="button">
-                {copy.common.cancel}
-              </button>
-            </div>
+        {isExpanded ? (
+          <div className="stack-lg">
+            {queueItem ? renderRestartDetails(queueItem) : <p className="muted">{goal.currentState || copy.common.noSummary}</p>}
+            {!queueItem && parkingGoalId !== goal.id ? (
+              <div className="button-row">
+                <button
+                  className="button button--secondary"
+                  disabled={isPending}
+                  onClick={() => {
+                    setParkingGoalId(goal.id);
+                    setParkingForm(buildParkingDefaults(goal.id));
+                  }}
+                  type="button"
+                >
+                  {copy.portfolio.buttons.parkGoal}
+                </button>
+              </div>
+            ) : null}
+            {parkingGoalId === goal.id ? renderParkingForm(goal.id) : null}
           </div>
         ) : null}
       </div>
@@ -283,6 +301,9 @@ export function PortfolioPageClient() {
   }
 
   function renderQueueCard(item: ResumeQueueEntry) {
+    const isExpanded = expandedQueueIds.includes(item.id);
+    const summary = `${interpolate(copy.portfolio.queue.parkedAgo, { days: item.parkedDays })} ・ ${formatResumeTrigger(locale, item.resumeTriggerType, item.resumeTriggerText)}`;
+
     return (
       <div className="queue-card" key={item.id}>
         <div className="queue-card__header">
@@ -290,16 +311,21 @@ export function PortfolioPageClient() {
             <div className="pill-row">
               <StatusPill label={item.stopMode} />
               <StatusPill label={item.resumeTriggerType} />
-              {item.isOverdue ? <StatusPill label="blocked" /> : null}
+              {item.isOverdue ? <StatusPill label="overdue" /> : null}
             </div>
             <h3>{item.goal?.title ?? copy.portfolio.queue.missingGoal}</h3>
-            <p className="muted">{interpolate(copy.portfolio.queue.parkedAgo, { days: item.parkedDays })}</p>
+            <p className="muted">{summary}</p>
           </div>
-          <button className="button" disabled={isPending} onClick={() => handleResume(item.goalId)} type="button">
-            {copy.portfolio.buttons.resumeGoal}
-          </button>
+          <div className="button-row">
+            <button className="button" disabled={isPending} onClick={() => handleResume(item.goalId)} type="button">
+              {copy.portfolio.buttons.resumeGoal}
+            </button>
+            <button className="button button--ghost" onClick={() => toggleQueueDetails(item.id)} type="button">
+              {isExpanded ? copy.common.hideDetails : copy.common.showDetails}
+            </button>
+          </div>
         </div>
-        {renderRestartDetails(item)}
+        {isExpanded ? renderRestartDetails(item) : null}
       </div>
     );
   }
@@ -322,120 +348,107 @@ export function PortfolioPageClient() {
         </div>
       </section>
 
-      <StatStrip items={stats} />
       {message ? <p className="feedback feedback--ok">{message}</p> : null}
       {error ? <p className="feedback feedback--error">{error}</p> : null}
-
-      <div className="two-column two-column--wide">
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">{copy.portfolio.focusTitle}</p>
-              <h2>{state.focusGoal?.title ?? copy.portfolio.focusEmpty}</h2>
-            </div>
-            {state.focusGoal ? <StatusPill label={state.focusGoal.status} /> : null}
-          </div>
-          <div className="stack-lg">
-            <p>{state.focusGoal?.description || copy.portfolio.focusBody}</p>
-            <div className="form-grid portfolio-form-grid">
-              <label className="field">
-                <span>{copy.portfolio.fields.activeGoalLimit}</span>
-                <select className="input" value={wipLimit} onChange={(event) => setWipLimit(event.target.value)}>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                </select>
-              </label>
-              <label className="field field--full">
-                <span>{copy.portfolio.fields.switchReason}</span>
-                <textarea className="textarea" rows={2} value={switchReason} onChange={(event) => setSwitchReason(event.target.value)} placeholder={copy.portfolio.fields.switchReasonPlaceholder} />
-              </label>
-              <label className="field field--full">
-                <span>{copy.portfolio.fields.resumeReason}</span>
-                <textarea className="textarea" rows={2} value={resumeReason} onChange={(event) => setResumeReason(event.target.value)} placeholder={copy.portfolio.fields.resumeReasonPlaceholder} />
-              </label>
-            </div>
-            <div className="button-row">
-              <button className="button" disabled={isPending} onClick={handleSaveWip} type="button">
-                {copy.portfolio.buttons.saveLimit}
-              </button>
-              <Link className="button button--ghost" href={state.focusGoal ? "/map" : "/intake"}>
-                {state.focusGoal ? copy.portfolio.buttons.editRoute : copy.portfolio.buttons.startIntake}
-              </Link>
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">{copy.portfolio.activeTitle}</p>
-              <h2>{state.activeGoals.length ? copy.portfolio.activeTitle : copy.portfolio.activeEmpty}</h2>
-            </div>
-          </div>
-          {state.activeGoals.length ? <div className="stack-lg">{state.activeGoals.map(renderGoalCard)}</div> : <p className="muted">{copy.portfolio.activeEmpty}</p>}
-        </SectionCard>
-      </div>
-
-      <div className="two-column two-column--wide">
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">{copy.portfolio.backlogTitle}</p>
-              <h2>{backlogGoals.length ? copy.portfolio.backlogTitle : copy.portfolio.backlogEmpty}</h2>
-            </div>
-          </div>
-          {backlogGoals.length ? <div className="stack-lg">{backlogGoals.map(renderGoalCard)}</div> : <p className="muted">{copy.portfolio.backlogEmpty}</p>}
-        </SectionCard>
-
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">{copy.portfolio.parkedTitle}</p>
-              <h2>{state.parkedGoals.length ? copy.portfolio.parkedTitle : copy.portfolio.parkedEmpty}</h2>
-            </div>
-          </div>
-          {state.parkedGoals.length ? (
-            <div className="stack-lg">
-              {state.parkedGoals.map((goal) => {
-                const queueItem = parkedLookup.get(goal.id);
-                return (
-                  <div className="portfolio-card" key={goal.id}>
-                    <div className="portfolio-card__header">
-                      <div>
-                        <div className="pill-row">
-                          <StatusPill label={goal.status} />
-                          {queueItem ? <StatusPill label={queueItem.stopMode} /> : null}
-                          {queueItem ? <StatusPill label={queueItem.resumeTriggerType} /> : null}
-                          {queueItem?.isOverdue ? <StatusPill label="blocked" /> : null}
-                        </div>
-                        <h3>{goal.title}</h3>
-                        <p className="muted">{queueItem?.reason || goal.description || copy.common.noSummary}</p>
-                      </div>
-                      <button className="button" disabled={isPending} onClick={() => handleResume(goal.id)} type="button">
-                        {copy.portfolio.buttons.resumeGoal}
-                      </button>
-                    </div>
-                    {queueItem ? renderRestartDetails(queueItem) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="muted">{copy.portfolio.parkedEmpty}</p>
-          )}
-        </SectionCard>
-      </div>
 
       <SectionCard>
         <div className="section-header">
           <div>
-            <p className="eyebrow">{copy.portfolio.resumeQueueTitle}</p>
-            <h2>{state.resumeQueue.length ? copy.portfolio.resumeQueueTitle : copy.portfolio.resumeQueueEmpty}</h2>
+            <p className="eyebrow">{copy.portfolio.focusTitle}</p>
+            <h2>{state.focusGoal?.title ?? copy.portfolio.focusEmpty}</h2>
+            <p className="muted">{state.focusGoal?.description || copy.portfolio.focusBody}</p>
           </div>
+          {state.focusGoal ? <StatusPill label={state.focusGoal.status} /> : null}
         </div>
-        {state.resumeQueue.length ? <div className="stack-lg">{state.resumeQueue.map(renderQueueCard)}</div> : <p className="muted">{copy.portfolio.resumeQueueEmpty}</p>}
+        <div className="pill-row">
+          <span className="pill pill--active">{focusSummary}</span>
+        </div>
+        <div className="button-row">
+          <Link className="button" href={state.focusGoal ? "/today" : "/intake?new=1"}>
+            {state.focusGoal ? copy.common.openToday : copy.portfolio.addGoal}
+          </Link>
+          <Link className="button button--secondary" href={state.focusGoal ? "/map" : "/intake?new=1"}>
+            {state.focusGoal ? copy.portfolio.buttons.editRoute : copy.portfolio.buttons.startIntake}
+          </Link>
+        </div>
       </SectionCard>
+
+      <DisclosureSection
+        eyebrow={copy.portfolio.settingsTitle}
+        title={copy.portfolio.settingsTitle}
+        summary={settingsSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        <div className="form-grid portfolio-form-grid">
+          <label className="field">
+            <span>{copy.portfolio.fields.activeGoalLimit}</span>
+            <select className="input" value={wipLimit} onChange={(event) => setWipLimit(event.target.value)}>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+          <label className="field field--full">
+            <span>{copy.portfolio.fields.switchReason}</span>
+            <textarea className="textarea" rows={2} value={switchReason} onChange={(event) => setSwitchReason(event.target.value)} placeholder={copy.portfolio.fields.switchReasonPlaceholder} />
+          </label>
+          <label className="field field--full">
+            <span>{copy.portfolio.fields.resumeReason}</span>
+            <textarea className="textarea" rows={2} value={resumeReason} onChange={(event) => setResumeReason(event.target.value)} placeholder={copy.portfolio.fields.resumeReasonPlaceholder} />
+          </label>
+        </div>
+        <div className="button-row">
+          <button className="button button--secondary" disabled={isPending} onClick={handleSaveWip} type="button">
+            {copy.portfolio.buttons.saveLimit}
+          </button>
+        </div>
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.portfolio.resumeQueueTitle}
+        title={copy.portfolio.resumeQueueTitle}
+        summary={state.resumeQueue.length ? interpolate(copy.common.itemCount, { value: String(state.resumeQueue.length) }) : copy.portfolio.resumeQueueEmpty}
+        initialOpen={openResumeQueueFirst}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {state.resumeQueue.length ? <div className="stack-lg">{state.resumeQueue.map(renderQueueCard)}</div> : <p className="muted">{copy.portfolio.resumeQueueEmpty}</p>}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.portfolio.activeTitle}
+        title={copy.portfolio.activeTitle}
+        summary={state.activeGoals.length ? interpolate(copy.common.itemCount, { value: String(state.activeGoals.length) }) : copy.portfolio.activeEmpty}
+        initialOpen={openActiveFirst}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {state.activeGoals.length ? <div className="stack-lg">{state.activeGoals.map(renderGoalCard)}</div> : <p className="muted">{copy.portfolio.activeEmpty}</p>}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.portfolio.backlogTitle}
+        title={copy.portfolio.backlogTitle}
+        summary={backlogGoals.length ? interpolate(copy.common.itemCount, { value: String(backlogGoals.length) }) : copy.portfolio.backlogEmpty}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {backlogGoals.length ? <div className="stack-lg">{backlogGoals.map(renderGoalCard)}</div> : <p className="muted">{copy.portfolio.backlogEmpty}</p>}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.portfolio.parkedTitle}
+        title={copy.portfolio.parkedTitle}
+        summary={state.parkedGoals.length ? interpolate(copy.common.itemCount, { value: String(state.parkedGoals.length) }) : copy.portfolio.parkedEmpty}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {state.parkedGoals.length ? <div className="stack-lg">{state.parkedGoals.map(renderGoalCard)}</div> : <p className="muted">{copy.portfolio.parkedEmpty}</p>}
+      </DisclosureSection>
     </div>
   );
 }

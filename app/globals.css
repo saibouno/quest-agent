@@ -158,6 +158,10 @@ code {
   margin-bottom: 1.5rem;
 }
 
+.topbar--compact {
+  gap: 1rem;
+}
+
 .topbar h2 {
   font-size: 1.5rem;
 }
@@ -294,6 +298,33 @@ code {
 
 .section-header {
   margin-bottom: 1.2rem;
+}
+
+.disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.disclosure__header,
+.disclosure__controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.disclosure__controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.disclosure__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(23, 49, 58, 0.08);
 }
 
 .stack-lg,
@@ -531,6 +562,8 @@ code {
   .topbar,
   .hero-panel,
   .section-header,
+  .disclosure__header,
+  .disclosure__controls,
   .quest-plan-card__header,
   .milestone-card__header,
   .quest-row,
