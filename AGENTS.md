@@ -18,3 +18,4 @@ Start here when you need to understand or change the product.
 - The 5 internal roles are scaffold only in v0.2.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only.
 - Vercel Preview without Supabase uses browser `localStorage`, not server file writes.
+- On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
