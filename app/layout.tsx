@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { QuestAgentProvider } from "@/components/providers/quest-agent-provider";
@@ -8,8 +8,8 @@ import { getAppState, isAiConfigured } from "@/lib/quest-agent/server/store";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Quest Agent v0.2 scaffold",
-  description: "Turn ambitious goals into executable daily quests.",
+  title: "Quest Agent v0.6",
+  description: "Keep one clear focus, detect drift early, and return without shame.",
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -19,7 +19,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const aiMode = isAiConfigured() ? "ai" : "heuristic";
 
   return (
-    <html lang="ja">
+    <html lang={state.uiPreferences.locale}>
       <body>
         <QuestAgentProvider aiMode={aiMode} initialBackendMode={backendMode} initialState={state} storageHint={storageHint}>
           <AppShell>{children}</AppShell>

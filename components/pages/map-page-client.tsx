@@ -21,10 +21,10 @@ export function MapPageClient() {
     return (
       <SectionCard>
         <p className="eyebrow">Quest Map</p>
-        <h1>Complete Quest Intake first.</h1>
-        <p className="muted">You need one active goal before the agent can draft a route.</p>
-        <Link className="button" href="/intake">
-          Back to Quest Intake
+        <h1>Select a focus goal first.</h1>
+        <p className="muted">Portfolio decides which goal gets the front slot before the route is edited here.</p>
+        <Link className="button" href="/portfolio">
+          Open Portfolio
         </Link>
       </SectionCard>
     );
@@ -123,8 +123,8 @@ export function MapPageClient() {
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">Quest Map</p>
-          <h1>Break the goal into milestones and quests.</h1>
-          <p className="lead">This does not need to be perfect. Build a route you can start, then improve it through review and reroute.</p>
+          <h1>Break the focus goal into milestones and quests.</h1>
+          <p className="lead">The map belongs to the current focus goal, so it can stay small, resumable, and ready for review.</p>
         </div>
         <div className="hero-panel__actions">
           <button className="button" onClick={handleGenerate} disabled={isPending} type="button">

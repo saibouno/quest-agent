@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatStrip } from "@/components/shared/stat-strip";
-import type { IntakeRefinement } from "@/lib/quest-agent/types";
+import type { Goal, IntakeRefinement } from "@/lib/quest-agent/types";
 
 function linesToString(values: string[]) {
   return values.join("\n");
@@ -19,31 +19,37 @@ function stringToLines(value: string) {
     .filter(Boolean);
 }
 
+function buildForm(goal: Goal | null) {
+  return {
+    id: goal?.id ?? "",
+    title: goal?.title ?? "",
+    description: goal?.description ?? "",
+    why: goal?.why ?? "",
+    deadline: goal?.deadline ?? "",
+    successCriteria: linesToString(goal?.successCriteria ?? []),
+    currentState: goal?.currentState ?? "",
+    constraints: linesToString(goal?.constraints ?? []),
+    concerns: goal?.concerns ?? "",
+    todayCapacity: goal?.todayCapacity ?? "",
+  };
+}
+
 export function IntakePageClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isNewMode = searchParams.get("new") === "1";
   const { state, aiEnabled, clientStorageMode, refineIntake, saveGoal } = useQuestAgent();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [refinement, setRefinement] = useState<IntakeRefinement | null>(null);
-  const [form, setForm] = useState({
-    id: state.currentGoal?.id ?? "",
-    title: state.currentGoal?.title ?? "",
-    description: state.currentGoal?.description ?? "",
-    why: state.currentGoal?.why ?? "",
-    deadline: state.currentGoal?.deadline ?? "",
-    successCriteria: linesToString(state.currentGoal?.successCriteria ?? []),
-    currentState: state.currentGoal?.currentState ?? "",
-    constraints: linesToString(state.currentGoal?.constraints ?? []),
-    concerns: state.currentGoal?.concerns ?? "",
-    todayCapacity: state.currentGoal?.todayCapacity ?? "",
-  });
+  const [form, setForm] = useState(() => buildForm(isNewMode ? null : state.focusGoal));
 
   const stats = useMemo(
     () => [
-      { label: "Current Goal", value: state.currentGoal ? 1 : 0, detail: state.currentGoal ? "A route exists" : "No active route yet" },
-      { label: "Milestones", value: state.currentMilestones.length, detail: "The stages supporting this goal" },
-      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "Visible reasons you may stall" },
+      { label: "Focus Goal", value: state.focusGoal ? 1 : 0, detail: state.focusGoal?.title ?? "No focus selected" },
+      { label: "Active Goals", value: `${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit}`, detail: "Current active count" },
+      { label: "Resume Queue", value: state.portfolioStats.resumeQueueCount, detail: "Goals parked with restart notes" },
       { label: "Momentum", value: state.stats.completedThisWeek, detail: "Completed quests in the last 7 days" },
     ],
     [state],
@@ -89,6 +95,14 @@ export function IntakePageClient() {
     setMessage("");
     startTransition(async () => {
       try {
+        const isEditingExisting = Boolean(form.id);
+        const existingStatus = isEditingExisting ? state.goals.find((goal) => goal.id === form.id)?.status : null;
+        const nextStatus = isEditingExisting
+          ? existingStatus ?? "active"
+          : state.portfolioStats.availableSlots > 0
+            ? "active"
+            : "paused";
+
         await saveGoal({
           id: form.id || undefined,
           title: form.title,
@@ -100,14 +114,24 @@ export function IntakePageClient() {
           constraints: stringToLines(form.constraints),
           concerns: form.concerns,
           todayCapacity: form.todayCapacity,
-          status: "active",
+          status: nextStatus,
           refined: Boolean(refinement),
         });
-        setMessage("Goal saved. Next, turn it into a route on Quest Map.");
+
+        if (nextStatus === "active") {
+          setMessage("Goal saved. Next, turn it into a route on Quest Map.");
+          if (clientStorageMode === "server-backed") {
+            router.refresh();
+          }
+          router.push("/map");
+          return;
+        }
+
+        setMessage("Goal saved to the portfolio backlog. Activate it from Portfolio when a slot opens.");
         if (clientStorageMode === "server-backed") {
           router.refresh();
         }
-        router.push("/map");
+        router.push("/portfolio");
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Goal save failed.");
       }
@@ -119,9 +143,9 @@ export function IntakePageClient() {
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">Quest Intake</p>
-          <h1>Shape the goal into something you can actually move.</h1>
+          <h1>{isNewMode ? "Add a goal without losing the portfolio balance." : "Shape the goal into something you can actually move."}</h1>
           <p className="lead">
-            You do not need a perfect plan here. Just explain the goal, the why, the constraints, the current state, and how much energy you have today.
+            Quest Intake now feeds the portfolio. If no active slot is open, the goal can still be captured cleanly and activated later.
           </p>
         </div>
         <div className="hero-panel__actions">
@@ -143,7 +167,7 @@ export function IntakePageClient() {
           <div className="section-header">
             <div>
               <p className="eyebrow">Goal Form</p>
-              <h2>Minimum input is enough</h2>
+              <h2>{isNewMode ? "Capture a new goal" : "Minimum input is enough"}</h2>
             </div>
           </div>
 
