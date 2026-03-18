@@ -247,7 +247,7 @@ export function TodayPageClient() {
         <div>
           <p className="eyebrow">{copy.nav.today}</p>
           <h1>{copy.today.title}</h1>
-          <p className="lead">{copy.today.lead}</p>
+          {copy.today.lead ? <p className="lead">{copy.today.lead}</p> : null}
         </div>
       </section>
 

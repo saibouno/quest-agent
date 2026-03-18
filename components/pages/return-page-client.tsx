@@ -196,7 +196,7 @@ export function ReturnPageClient() {
         <div>
           <p className="eyebrow">{copy.nav.returnFlow}</p>
           <h1>{copy.returnFlow.title}</h1>
-          <p className="lead">{copy.returnFlow.lead}</p>
+          {copy.returnFlow.lead ? <p className="lead">{copy.returnFlow.lead}</p> : null}
         </div>
         <div className="hero-panel__actions">
           <Link className="button button--secondary" href="/today">

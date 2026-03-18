@@ -104,7 +104,7 @@ export function ReviewPageClient() {
     : copy.review.dailyLeadEmpty;
   const topCandidate = focusCandidates[0] ? goalMap.get(focusCandidates[0].goalId) : null;
   const topCandidateReason = focusCandidates[0] ? focusReasonMap.get(focusCandidates[0].goalId) ?? heuristicReasons.find((item) => item.goalId === focusCandidates[0].goalId) : null;
-  const candidateSummary = topCandidate ? `${topCandidate.title} ・ ${topCandidateReason?.reason ?? copy.review.candidateReason}` : copy.review.savedReviewsEmpty;
+  const candidateSummary = topCandidate ? `${topCandidate.title} ・ ${topCandidateReason?.reason ?? copy.review.candidateReason}`  : copy.review.focusCandidatesEmpty;
   const reviewsSummary = state.reviews.length ? interpolate(copy.common.itemCount, { value: String(state.reviews.length) }) : copy.review.savedReviewsEmpty;
 
   function refreshIfNeeded() {
@@ -160,7 +160,7 @@ export function ReviewPageClient() {
         <div>
           <p className="eyebrow">{copy.nav.review}</p>
           <h1>{copy.review.title}</h1>
-          <p className="lead">{copy.review.lead}</p>
+          {copy.review.lead ? <p className="lead">{copy.review.lead}</p> : null}
         </div>
       </section>
 
@@ -285,7 +285,7 @@ export function ReviewPageClient() {
             })}
           </div>
         ) : (
-          <p className="muted">{copy.review.savedReviewsEmpty}</p>
+          <p className="muted">{copy.review.focusCandidatesEmpty}</p>
         )}
       </DisclosureSection>
 

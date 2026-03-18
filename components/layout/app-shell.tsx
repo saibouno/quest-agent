@@ -41,7 +41,7 @@ export function AppShell({ children }: PropsWithChildren) {
         <div className="brand-card">
           <p className="brand-kicker">{copy.shell.kicker}</p>
           <h1>{copy.shell.title}</h1>
-          <p className="muted">{copy.shell.description}</p>
+          {copy.shell.description ? <p className="muted">{copy.shell.description}</p> : null}
         </div>
 
         <nav className="nav-panel">
