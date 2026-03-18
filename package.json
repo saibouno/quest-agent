@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:noprofile": "cmd /d /s /c \"eslint . --max-warnings=0\"",
+    "typecheck:noprofile": "cmd /d /s /c \"tsc --noEmit\""
   },
   "keywords": [
     "nextjs",

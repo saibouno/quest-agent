@@ -81,6 +81,17 @@ export function ReturnPageClient() {
     }
   }
 
+  function handleNext15mChange(value: string) {
+    setForm((current) => {
+      const shouldMirror = !nextRestartTouched && !latestDoneWhen.trim() && (!current.nextRestartStep.trim() || current.nextRestartStep === current.next15mAction);
+      return {
+        ...current,
+        next15mAction: value,
+        nextRestartStep: shouldMirror ? value : current.nextRestartStep,
+      };
+    });
+  }
+
   if (!state.focusGoal) {
     return (
       <SectionCard>
@@ -366,7 +377,7 @@ export function ReturnPageClient() {
               </label>
               <label className="field field--full">
                 <span>{copy.returnFlow.fields.next15mAction}</span>
-                <textarea className="textarea" rows={3} value={form.next15mAction} onChange={(event) => { const value = event.target.value; setForm((current) => { const shouldMirror = !nextRestartTouched && !latestDoneWhen.trim() && (!current.nextRestartStep.trim() || current.nextRestartStep === current.next15mAction); return { ...current, next15mAction: value, nextRestartStep: shouldMirror ? value : current.nextRestartStep }; }); }} placeholder={copy.returnFlow.fields.next15mPlaceholder} />
+                <textarea className="textarea" rows={3} value={form.next15mAction} onChange={(event) => handleNext15mChange(event.target.value)} placeholder={copy.returnFlow.fields.next15mPlaceholder} />
               </label>
               <div className="button-row field--full">
                 <button className="button button--ghost" onClick={() => setCurrentStep(1)} type="button">

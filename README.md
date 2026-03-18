@@ -46,6 +46,13 @@ npm.cmd install
 npm.cmd run dev
 ```
 
+Windows note: if your PowerShell profile causes automation failures, run `npm.cmd run dev` or `npm.cmd run build` from a no-profile shell. In Codex, use `login:false`.
+
+Stable helper scripts are available for checks:
+
+`npm.cmd run lint:noprofile`
+`npm.cmd run typecheck:noprofile`
+
 ブラウザで [http://localhost:3000](http://localhost:3000) を開いてください。
 
 ### 2. 何も設定しなくても試せる
