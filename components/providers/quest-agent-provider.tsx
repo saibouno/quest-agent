@@ -27,7 +27,7 @@ import {
   updateQuestStatusInBrowser,
   updateUiPreferencesInBrowser,
 } from "@/lib/quest-agent/browser-store";
-import { buildHeuristicBlockerReroute } from "@/lib/quest-agent/derive";
+import { buildHeuristicBlockerReroute, buildHeuristicReviewFocusReasons } from "@/lib/quest-agent/derive";
 import type {
   AppState,
   BackendModeLabel,
@@ -60,6 +60,8 @@ import type {
   ReturnInterviewInput,
   ReturnRun,
   ReturnRunInput,
+  ReviewFocusCandidateReason,
+  ReviewFocusReasonsInput,
   TodayPlan,
   UiPreferences,
   UiPreferencesInput,
@@ -93,6 +95,7 @@ interface QuestAgentContextValue {
   generateMap: (input: GenerateMapInput) => Promise<MapDraft>;
   planToday: (input: PlanTodayInput) => Promise<TodayPlan>;
   rerouteFromBlocker: (input: RerouteInput) => Promise<BlockerReroute>;
+  generateReviewFocusReasons: (input: ReviewFocusReasonsInput) => Promise<ReviewFocusCandidateReason[]>;
 }
 
 const QuestAgentContext = createContext<QuestAgentContextValue | null>(null);
@@ -301,6 +304,7 @@ export function QuestAgentProvider({
         const payload = await fetchJson<{ data: BlockerReroute }>("/api/ai/reroute-from-blocker", {
           ...input,
           goalSnapshot: input.goalSnapshot ?? state.currentGoal,
+          locale: input.locale ?? state.uiPreferences.locale,
         });
         return payload.data;
       } catch {
@@ -308,15 +312,22 @@ export function QuestAgentProvider({
         if (!fallbackGoal) {
           throw new Error("Goal not found.");
         }
-        return buildHeuristicBlockerReroute(fallbackGoal, {
-          title: input.title,
-          description: input.description,
-          blockerType: input.blockerType,
-        });
+        return buildHeuristicBlockerReroute(
+          fallbackGoal,
+          {
+            title: input.title,
+            description: input.description,
+            blockerType: input.blockerType,
+          },
+          input.locale ?? state.uiPreferences.locale,
+        );
       }
     }
 
-    const payload = await fetchJson<{ data: BlockerReroute }>("/api/ai/reroute-from-blocker", input);
+    const payload = await fetchJson<{ data: BlockerReroute }>("/api/ai/reroute-from-blocker", {
+      ...input,
+      locale: input.locale ?? state.uiPreferences.locale,
+    });
     return payload.data;
   }
 
@@ -357,12 +368,18 @@ export function QuestAgentProvider({
   }
 
   async function refineIntake(input: IntakeRefineInput): Promise<IntakeRefinement> {
-    const payload = await fetchJson<{ data: IntakeRefinement }>("/api/ai/intake-refine", input);
+    const payload = await fetchJson<{ data: IntakeRefinement }>("/api/ai/intake-refine", {
+      ...input,
+      locale: input.locale ?? state.uiPreferences.locale,
+    });
     return payload.data;
   }
 
   async function generateMap(input: GenerateMapInput): Promise<MapDraft> {
-    const payload = await fetchJson<{ data: MapDraft }>("/api/ai/generate-map", input);
+    const payload = await fetchJson<{ data: MapDraft }>("/api/ai/generate-map", {
+      ...input,
+      locale: input.locale ?? state.uiPreferences.locale,
+    });
     return payload.data;
   }
 
@@ -373,6 +390,7 @@ export function QuestAgentProvider({
       questSnapshots: input.questSnapshots ?? state.currentQuests,
       blockerSnapshots: input.blockerSnapshots ?? state.currentBlockers,
       latestReviewSnapshot: input.latestReviewSnapshot ?? state.currentReviews[0] ?? null,
+      locale: input.locale ?? state.uiPreferences.locale,
     });
 
     if (clientStorageMode === "browser-local") {
@@ -384,6 +402,26 @@ export function QuestAgentProvider({
     }
 
     return payload.data;
+  }
+
+  async function generateReviewFocusReasons(input: ReviewFocusReasonsInput): Promise<ReviewFocusCandidateReason[]> {
+    const locale = input.locale ?? state.uiPreferences.locale;
+    const fallback = buildHeuristicReviewFocusReasons(input.candidates, locale);
+
+    if (clientStorageMode === "browser-local") {
+      return fallback;
+    }
+
+    try {
+      const payload = await fetchJson<{ data: ReviewFocusCandidateReason[] }>("/api/ai/review-focus-reasons", {
+        ...input,
+        currentFocusGoalId: input.currentFocusGoalId ?? state.focusGoal?.id ?? null,
+        locale,
+      });
+      return payload.data.length ? payload.data : fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   const value: QuestAgentContextValue = {
@@ -411,6 +449,7 @@ export function QuestAgentProvider({
     generateMap,
     planToday,
     rerouteFromBlocker,
+    generateReviewFocusReasons,
   };
 
   return <QuestAgentContext.Provider value={value}>{children}</QuestAgentContext.Provider>;
@@ -424,3 +463,4 @@ export function useQuestAgent() {
 
   return context;
 }
+

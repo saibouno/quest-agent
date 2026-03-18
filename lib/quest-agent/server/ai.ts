@@ -1,9 +1,10 @@
-import "server-only";
+﻿import "server-only";
 
 import {
   buildHeuristicBlockerReroute,
   buildHeuristicIntakeRefinement,
   buildHeuristicMapDraft,
+  buildHeuristicReviewFocusReasons,
   buildHeuristicTodayPlan,
 } from "@/lib/quest-agent/derive";
 import { buildWorkflowInstructions } from "@/lib/quest-agent/server/orchestration";
@@ -15,57 +16,79 @@ import type {
   MapDraft,
   Quest,
   Review,
+  ReviewFocusCandidateInput,
+  ReviewFocusCandidateReason,
   TodayPlan,
+  UiLocale,
 } from "@/lib/quest-agent/types";
 
 const openAiModel = process.env.OPENAI_MODEL || "gpt-5-mini";
 
-async function callStructuredOutput<T>(name: string, instructions: string, prompt: string, schema: Record<string, unknown>): Promise<T | null> {
+function withLocaleInstruction(instructions: string, locale: UiLocale): string {
+  const localeInstruction =
+    locale === "ja"
+      ? "Respond in natural Japanese that fits a non-engineer product UI. Keep the wording concrete, calm, and concise."
+      : "Respond in concise natural English that fits a product UI for non-engineers.";
+
+  return `${instructions}\n\n${localeInstruction}`;
+}
+
+async function callStructuredOutput<T>(
+  name: string,
+  instructions: string,
+  prompt: string,
+  schema: Record<string, unknown>,
+  locale: UiLocale,
+): Promise<T | null> {
   if (!process.env.OPENAI_API_KEY) {
     return null;
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: openAiModel,
-      instructions,
-      input: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: prompt,
-            },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name,
-          strict: true,
-          schema,
-        },
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      body: JSON.stringify({
+        model: openAiModel,
+        instructions: withLocaleInstruction(instructions, locale),
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name,
+            strict: true,
+            schema,
+          },
+        },
+      }),
+    });
 
-  if (!response.ok) {
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as { output_text?: string };
+    if (!body.output_text) {
+      return null;
+    }
+
+    return JSON.parse(body.output_text) as T;
+  } catch {
     return null;
   }
-
-  const body = (await response.json()) as { output_text?: string };
-  if (!body.output_text) {
-    return null;
-  }
-
-  return JSON.parse(body.output_text) as T;
 }
 
 const refinementSchema = {
@@ -160,32 +183,57 @@ const blockerSchema = {
   },
 } as const;
 
-export async function generateIntakeRefinement(input: {
-  title: string;
-  description: string;
-  why: string;
-  deadline?: string | null;
-  successCriteria: string[];
-  currentState: string;
-  constraints: string[];
-  concerns: string;
-  todayCapacity: string;
-}): Promise<IntakeRefinement> {
-  const fallback = buildHeuristicIntakeRefinement({ ...input, deadline: input.deadline ?? null });
-  const prompt = JSON.stringify(input, null, 2);
+const reviewFocusReasonsSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reasons"],
+  properties: {
+    reasons: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["goalId", "reason"],
+        properties: {
+          goalId: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
+
+export async function generateIntakeRefinement(
+  input: {
+    title: string;
+    description: string;
+    why: string;
+    deadline?: string | null;
+    successCriteria: string[];
+    currentState: string;
+    constraints: string[];
+    concerns: string;
+    todayCapacity: string;
+  },
+  locale: UiLocale = "ja",
+): Promise<IntakeRefinement> {
+  const normalizedInput = { ...input, deadline: input.deadline ?? null };
+  const fallback = buildHeuristicIntakeRefinement(normalizedInput, locale);
+  const prompt = JSON.stringify(normalizedInput, null, 2);
   const instructions = await buildWorkflowInstructions("intake-refine");
   const result = await callStructuredOutput<Omit<IntakeRefinement, "mode">>(
     "quest_agent_intake_refinement",
     instructions,
     prompt,
     refinementSchema,
+    locale,
   );
 
   return result ? { ...result, mode: "ai" } : fallback;
 }
 
-export async function generateQuestMap(goal: Goal): Promise<MapDraft> {
-  const fallback = buildHeuristicMapDraft(goal);
+export async function generateQuestMap(goal: Goal, locale: UiLocale = "ja"): Promise<MapDraft> {
+  const fallback = buildHeuristicMapDraft(goal, locale);
   const prompt = JSON.stringify(goal, null, 2);
   const instructions = await buildWorkflowInstructions("generate-map");
   const result = await callStructuredOutput<Omit<MapDraft, "mode">>(
@@ -193,13 +241,20 @@ export async function generateQuestMap(goal: Goal): Promise<MapDraft> {
     instructions,
     prompt,
     mapDraftSchema,
+    locale,
   );
 
   return result ? { ...result, mode: "ai" } : fallback;
 }
 
-export async function generateTodayPlan(goal: Goal, quests: Quest[], blockers: Blocker[], latestReview?: Review): Promise<TodayPlan> {
-  const fallback = buildHeuristicTodayPlan(goal, quests, blockers, latestReview);
+export async function generateTodayPlan(
+  goal: Goal,
+  quests: Quest[],
+  blockers: Blocker[],
+  latestReview?: Review,
+  locale: UiLocale = "ja",
+): Promise<TodayPlan> {
+  const fallback = buildHeuristicTodayPlan(goal, quests, blockers, latestReview, locale);
   const prompt = JSON.stringify({ goal, quests, blockers, latestReview }, null, 2);
   const instructions = await buildWorkflowInstructions("plan-today");
   const result = await callStructuredOutput<Omit<TodayPlan, "mode">>(
@@ -207,13 +262,18 @@ export async function generateTodayPlan(goal: Goal, quests: Quest[], blockers: B
     instructions,
     prompt,
     todayPlanSchema,
+    locale,
   );
 
   return result ? { ...result, mode: "ai" } : fallback;
 }
 
-export async function generateBlockerReroute(goal: Goal, blocker: { title: string; description: string; blockerType: string }): Promise<BlockerReroute> {
-  const fallback = buildHeuristicBlockerReroute(goal, blocker);
+export async function generateBlockerReroute(
+  goal: Goal,
+  blocker: { title: string; description: string; blockerType: string },
+  locale: UiLocale = "ja",
+): Promise<BlockerReroute> {
+  const fallback = buildHeuristicBlockerReroute(goal, blocker, locale);
   const prompt = JSON.stringify({ goal, blocker }, null, 2);
   const instructions = await buildWorkflowInstructions("reroute-from-blocker");
   const result = await callStructuredOutput<Omit<BlockerReroute, "mode">>(
@@ -221,7 +281,64 @@ export async function generateBlockerReroute(goal: Goal, blocker: { title: strin
     instructions,
     prompt,
     blockerSchema,
+    locale,
   );
 
   return result ? { ...result, mode: "ai" } : fallback;
 }
+
+
+export async function generateReviewFocusReasons(
+  candidates: ReviewFocusCandidateInput[],
+  locale: UiLocale = "ja",
+): Promise<ReviewFocusCandidateReason[]> {
+  const fallback = buildHeuristicReviewFocusReasons(candidates, locale);
+  if (!candidates.length) {
+    return fallback;
+  }
+
+  const prompt = JSON.stringify({ candidates }, null, 2);
+  const instructions = [
+    "You are helping Quest Agent explain why each goal is a good next focus candidate.",
+    "Use only the candidate data you are given.",
+    "Return exactly one short sentence for each candidate.",
+    "Do not moralize. Do not mention missing data. Keep the wording concrete and calm.",
+  ].join("\n");
+
+  const result = await callStructuredOutput<{ reasons: Array<{ goalId: string; reason: string }> }>(
+    "quest_agent_review_focus_reasons",
+    instructions,
+    prompt,
+    reviewFocusReasonsSchema,
+    locale,
+  );
+
+  if (!result?.reasons?.length) {
+    return fallback;
+  }
+
+  const fallbackMap = new Map(fallback.map((item) => [item.goalId, item]));
+  const aiMap = new Map(
+    result.reasons
+      .filter((item) => typeof item.goalId === "string" && typeof item.reason === "string" && item.reason.trim().length > 0)
+      .map((item) => [item.goalId, item.reason.trim()]),
+  );
+
+  return candidates.map((candidate) => {
+    const aiReason = aiMap.get(candidate.goalId);
+    if (aiReason) {
+      return {
+        goalId: candidate.goalId,
+        reason: aiReason,
+        mode: "ai",
+      };
+    }
+
+    return fallbackMap.get(candidate.goalId) ?? {
+      goalId: candidate.goalId,
+      reason: locale === "ja" ? "\u4eca\u9031\u306e\u672c\u4e38\u5019\u88dc\u3068\u3057\u3066\u6574\u7406\u3057\u3084\u3059\u3044" : "This looks easy to organize as a front-slot candidate this week.",
+      mode: "heuristic",
+    };
+  });
+}
+

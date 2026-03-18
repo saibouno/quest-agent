@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const quests = payload.data.questSnapshots ?? state.quests.filter((quest) => quest.goalId === goal.id);
     const blockers = payload.data.blockerSnapshots ?? state.blockers.filter((blocker) => blocker.goalId === goal.id);
     const latestReview = payload.data.latestReviewSnapshot ?? state.reviews.find((review) => review.goalId === goal.id);
-    const plan = await generateTodayPlan(goal, quests, blockers, latestReview ?? undefined);
+    const plan = await generateTodayPlan(goal, quests, blockers, latestReview ?? undefined, payload.data.locale);
 
     if (!payload.data.goalSnapshot) {
       await recordTodayPlan(goal.id, plan);

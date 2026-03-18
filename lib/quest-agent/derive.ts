@@ -1,4 +1,4 @@
-﻿import { buildMirrorCard, dayKeyFromIso, rebuildTrackingCollections } from "@/lib/quest-agent/detect-return";
+import { buildMirrorCard, dayKeyFromIso, rebuildTrackingCollections } from "@/lib/quest-agent/detect-return";
 import type {
   AppState,
   Blocker,
@@ -14,9 +14,12 @@ import type {
   ResumeQueueEntry,
   ResumeQueueItem,
   Review,
+  ReviewFocusCandidateInput,
+  ReviewFocusCandidateReason,
   SwitchSummary,
   TodayPlan,
   TodayQuestSuggestion,
+  UiLocale,
   UiPreferences,
   UserProfile,
   WorkSession,
@@ -239,7 +242,7 @@ export function pickCurrentGoal(goals: Goal[], portfolioSettings?: PortfolioSett
   return findFocusGoal(goals, portfolioSettings ?? defaultPortfolioSettings());
 }
 
-export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[]): TodayQuestSuggestion[] {
+export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[], locale: UiLocale = "ja"): TodayQuestSuggestion[] {
   const blockedQuestIds = new Set(
     blockers.filter((blocker) => blocker.status === "open" && blocker.relatedQuestId).map((blocker) => blocker.relatedQuestId),
   );
@@ -274,14 +277,107 @@ export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[]): Tod
       questId: quest.id,
       title: quest.title,
       reason: blockedQuestIds.has(quest.id)
-        ? "This quest is linked to an active blocker, so unblock wording comes first."
+        ? (locale === "ja"
+            ? "この作業は未解決の詰まりに関係しているので、まず詰まりをほどく言い方から入ります。"
+            : "This quest is linked to an active blocker, so unblock wording comes first.")
         : quest.status === "in_progress"
-          ? "This is already in motion, so it is the easiest place to restart."
-          : "This is the clearest next step with the lowest friction today.",
+          ? (locale === "ja"
+              ? "すでに動いているので、いちばん戻りやすい場所です。"
+              : "This is already in motion, so it is the easiest place to restart.")
+          : (locale === "ja"
+              ? "今日いちばん摩擦が少ない、はっきりした次の一手です。"
+              : "This is the clearest next step with the lowest friction today."),
       focusMinutes: quest.estimatedMinutes ?? 45,
-      successHint: quest.description || "Shrink the work until the finish line is visible.",
+      successHint: quest.description || (locale === "ja" ? "終わりが見えるまで小さく切ります。" : "Shrink the work until the finish line is visible."),
       status: quest.status,
     }));
+}
+
+export function findLatestArtifactNoteForGoal(workSessions: WorkSession[], goalId: string): string {
+  return [...workSessions]
+    .filter((session) => session.goalId === goalId && Boolean(session.endedAt) && session.artifactNote.trim().length > 0)
+    .sort((left, right) => (right.endedAt ?? right.startedAt).localeCompare(left.endedAt ?? left.startedAt))[0]?.artifactNote.trim() ?? "";
+}
+
+export function findLatestDoneWhenForGoal(buildImproveDecisions: BuildImproveDecision[], goalId: string): string {
+  return [...buildImproveDecisions]
+    .filter((decision) => decision.goalId === goalId && decision.doneWhen.trim().length > 0)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.doneWhen.trim() ?? "";
+}
+
+function reviewFocusCandidateRank(candidate: ReviewFocusCandidateInput): number {
+  if (candidate.isInResumeQueue && candidate.isOverdue) {
+    return 0;
+  }
+  if (candidate.isInResumeQueue) {
+    return 1;
+  }
+  if (candidate.status === "active" && candidate.activeQuestCount > 0) {
+    return 2;
+  }
+  return 3;
+}
+
+export function buildReviewFocusCandidates(state: AppState): ReviewFocusCandidateInput[] {
+  const focusGoalId = state.focusGoal?.id ?? null;
+  const waitingQueue = new Map(state.resumeQueue.map((item) => [item.goalId, item]));
+  const candidates = state.goals
+    .filter((goal) => goal.status !== "completed")
+    .map((goal) => ({
+      goalId: goal.id,
+      title: goal.title,
+      description: goal.description,
+      currentState: goal.currentState,
+      status: goal.status,
+      isInResumeQueue: waitingQueue.has(goal.id),
+      isOverdue: waitingQueue.get(goal.id)?.isOverdue ?? false,
+      openBlockerCount: state.blockers.filter((blocker) => blocker.goalId === goal.id && blocker.status === "open").length,
+      activeQuestCount: state.quests.filter((quest) => quest.goalId === goal.id && (quest.status === "ready" || quest.status === "in_progress")).length,
+      updatedAt: goal.updatedAt,
+    }))
+    .sort((left, right) => {
+      const rankDelta = reviewFocusCandidateRank(left) - reviewFocusCandidateRank(right);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      return right.updatedAt.localeCompare(left.updatedAt);
+    });
+
+  const alternatives = focusGoalId ? candidates.filter((candidate) => candidate.goalId !== focusGoalId) : candidates;
+  const visible = alternatives.length > 0 ? alternatives : candidates;
+  return visible.slice(0, 4);
+}
+
+export function buildHeuristicReviewFocusReasons(candidates: ReviewFocusCandidateInput[], locale: UiLocale = "ja"): ReviewFocusCandidateReason[] {
+  return candidates.map((candidate) => {
+    let reason = locale === "ja"
+      ? "今週の本丸候補として整理しやすい"
+      : "This looks easy to organize as a front-slot candidate this week.";
+
+    if (candidate.isInResumeQueue && candidate.isOverdue) {
+      reason = locale === "ja"
+        ? "再開条件が来ていて、戻り先も決まっている"
+        : "Its restart condition has arrived and the return path is already clear.";
+    } else if (candidate.isInResumeQueue) {
+      reason = locale === "ja"
+        ? "再開メモがあり、戻りコストが低い"
+        : "It already has a restart note, so the return cost is low.";
+    } else if (candidate.status === "active" && candidate.openBlockerCount > 1) {
+      reason = locale === "ja"
+        ? "詰まりはあるが、見直せば前進に戻しやすい"
+        : "It has blockers, but a review could bring it back into forward motion.";
+    } else if (candidate.status === "active" && candidate.activeQuestCount > 0 && candidate.openBlockerCount <= 1) {
+      reason = locale === "ja"
+        ? "いま動かせる次の一手が見えている"
+        : "Its next move is visible right now.";
+    }
+
+    return {
+      goalId: candidate.goalId,
+      reason,
+      mode: "heuristic",
+    };
+  });
 }
 
 export function buildDashboardStats(quests: Quest[], blockers: Blocker[], events: QuestEvent[]) {
@@ -380,7 +476,7 @@ export function enrichState(state: PersistedState): AppState {
     currentQuests,
     currentBlockers,
     currentReviews,
-    todaySuggestions: buildTodaySuggestions(currentQuests, currentBlockers),
+    todaySuggestions: buildTodaySuggestions(currentQuests, currentBlockers, uiPreferences.locale),
     stats: {
       ...stats,
       milestoneCount: currentMilestones.length,
@@ -393,7 +489,7 @@ export function enrichState(state: PersistedState): AppState {
     latestReturnRun,
     todayLeadMetrics,
     todayMetaWorkFlags,
-    mirrorCard: buildMirrorCard(safeState),
+    mirrorCard: buildMirrorCard(safeState, uiPreferences.locale),
   };
 }
 
@@ -406,58 +502,76 @@ export function buildHeuristicIntakeRefinement(input: {
   currentState: string;
   constraints: string[];
   concerns: string;
-}): IntakeRefinement {
+}, locale: UiLocale = "ja"): IntakeRefinement {
   const successCriteria = input.successCriteria.length
     ? input.successCriteria
-    : [
-        "You can explain what done looks like in one sentence.",
-        "You can show a concrete artifact or output.",
-        "You leave evidence that helps the next decision.",
-      ];
+    : locale === "ja"
+      ? [
+          "完了の姿を1文で説明できる。",
+          "見せられる成果物や出力がある。",
+          "次の判断に使える記録が残る。",
+        ]
+      : [
+          "You can explain what done looks like in one sentence.",
+          "You can show a concrete artifact or output.",
+          "You leave evidence that helps the next decision.",
+        ];
 
   const constraintsToWatch = input.constraints.length
     ? input.constraints
-    : ["Available time", "Decision waiting", "Unclear next step"];
+    : locale === "ja"
+      ? ["使える時間", "判断待ち", "次の一手の不明確さ"]
+      : ["Available time", "Decision waiting", "Unclear next step"];
 
   return {
     goalTitle: input.title,
     goalSummary:
       input.description ||
-      `${input.title} needs to move from an ambitious idea into an executable route${input.deadline ? ` by ${input.deadline}` : ""}.`,
+      (locale === "ja"
+        ? `${input.title} を、${input.deadline ? `${input.deadline} までに` : ""}実行できる進め方に落とし込む必要があります。`
+        : `${input.title} needs to move from an ambitious idea into an executable route${input.deadline ? ` by ${input.deadline}` : ""}.`),
     successCriteria,
     constraintsToWatch,
     openQuestions: [
-      input.currentState ? `Current state: ${input.currentState}` : "What is already true right now?",
-      input.concerns ? `Main concern: ${input.concerns}` : "Where are you most likely to stall?",
-      "What is the smallest thing you could show this week?",
+      input.currentState
+        ? (locale === "ja" ? `現状: ${input.currentState}` : `Current state: ${input.currentState}`)
+        : (locale === "ja" ? "いま既に成り立っていることは何ですか。" : "What is already true right now?"),
+      input.concerns
+        ? (locale === "ja" ? `いちばん気になる点: ${input.concerns}` : `Main concern: ${input.concerns}`)
+        : (locale === "ja" ? "どこでいちばん止まりやすそうですか。" : "Where are you most likely to stall?"),
+      locale === "ja" ? "今週見せられる最小の前進は何ですか。" : "What is the smallest thing you could show this week?",
     ],
-    firstRouteNote: "Start with a route you can actually begin, not the perfect plan.",
+    firstRouteNote: locale === "ja"
+      ? "完璧な計画ではなく、実際に着手できる進め方から始めます。"
+      : "Start with a route you can actually begin, not the perfect plan.",
     mode: "heuristic",
   };
 }
 
-export function buildHeuristicMapDraft(goal: Goal): MapDraft {
-  const deadlineLabel = goal.deadline ?? "the current working window";
+export function buildHeuristicMapDraft(goal: Goal, locale: UiLocale = "ja"): MapDraft {
+  const deadlineLabel = goal.deadline ?? (locale === "ja" ? "いまの作業期間" : "the current working window");
   return {
-    routeSummary: `Move ${goal.title} through three stages before ${deadlineLabel}: clarify the route, build the core, then polish and share.`,
+    routeSummary: locale === "ja"
+      ? `${goal.title} を ${deadlineLabel} までに進めるために、進め方を固める・本体を動かす・整えて共有する、の3段階で進めます。`
+      : `Move ${goal.title} through three stages before ${deadlineLabel}: clarify the route, build the core, then polish and share.`,
     milestones: [
       {
         tempId: makeId(),
-        title: "Clarify the route",
-        description: "Reduce ambiguity around the goal, the constraints, and the finish line.",
+        title: locale === "ja" ? "進め方を固める" : "Clarify the route",
+        description: locale === "ja" ? "ゴール、制約、終わり方の曖昧さを減らします。" : "Reduce ambiguity around the goal, the constraints, and the finish line.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "Lock the win conditions",
-            description: "Turn success criteria into a short checklist.",
+            title: locale === "ja" ? "勝ち筋を固定する" : "Lock the win conditions",
+            description: locale === "ja" ? "成功条件を短いチェックリストにします。" : "Turn success criteria into a short checklist.",
             priority: "high",
             dueDate: goal.deadline,
             estimatedMinutes: 30,
             questType: "main",
           },
           {
-            title: "Write the current-state snapshot",
-            description: goal.currentState || "Summarize what is already done and what is still fuzzy.",
+            title: locale === "ja" ? "現状をひと目で分かる形にする" : "Write the current-state snapshot",
+            description: goal.currentState || (locale === "ja" ? "できていることと曖昧な点を短く整理します。" : "Summarize what is already done and what is still fuzzy."),
             priority: "high",
             dueDate: goal.deadline,
             estimatedMinutes: 25,
@@ -467,21 +581,21 @@ export function buildHeuristicMapDraft(goal: Goal): MapDraft {
       },
       {
         tempId: makeId(),
-        title: "Build the core",
-        description: "Do the smallest slice that proves the route works.",
+        title: locale === "ja" ? "本体を動かす" : "Build the core",
+        description: locale === "ja" ? "進め方が合っていると分かる最小の一片を動かします。" : "Do the smallest slice that proves the route works.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "Ship the smallest visible output",
-            description: "Choose one artifact that would prove movement this week.",
+            title: locale === "ja" ? "最小の見える成果を出す" : "Ship the smallest visible output",
+            description: locale === "ja" ? "今週の前進を示せる成果物を1つ選びます。" : "Choose one artifact that would prove movement this week.",
             priority: "high",
             dueDate: goal.deadline,
             estimatedMinutes: 45,
             questType: "main",
           },
           {
-            title: "Remove the loudest blocker",
-            description: "If something would stop execution, shrink or reroute it now.",
+            title: locale === "ja" ? "いちばん大きい詰まりを下げる" : "Remove the loudest blocker",
+            description: locale === "ja" ? "実行を止めるものがあれば、いま小さくするか迂回します。" : "If something would stop execution, shrink or reroute it now.",
             priority: "medium",
             dueDate: goal.deadline,
             estimatedMinutes: 30,
@@ -491,13 +605,13 @@ export function buildHeuristicMapDraft(goal: Goal): MapDraft {
       },
       {
         tempId: makeId(),
-        title: "Polish and share",
-        description: "Tighten the route and make the work easy to resume or explain.",
+        title: locale === "ja" ? "整えて共有する" : "Polish and share",
+        description: locale === "ja" ? "再開しやすく、人にも説明しやすい形に整えます。" : "Tighten the route and make the work easy to resume or explain.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "Capture learnings and next steps",
-            description: "Leave notes that make the next restart cheaper.",
+            title: locale === "ja" ? "学びと次の一手を残す" : "Capture learnings and next steps",
+            description: locale === "ja" ? "次回の再開コストが下がるメモを残します。" : "Leave notes that make the next restart cheaper.",
             priority: "medium",
             dueDate: goal.deadline,
             estimatedMinutes: 20,
@@ -515,29 +629,34 @@ export function buildHeuristicTodayPlan(
   questsArg?: Quest[],
   blockersArg?: Blocker[],
   reviewArg?: Review | null,
+  locale: UiLocale = "ja",
 ): TodayPlan {
   const input = "goal" in inputOrGoal
     ? inputOrGoal
     : { goal: inputOrGoal, quests: questsArg ?? [], blockers: blockersArg ?? [], review: reviewArg ?? null };
-  const suggestions = buildTodaySuggestions(input.quests, input.blockers);
+  const suggestions = buildTodaySuggestions(input.quests, input.blockers, locale);
   return {
-    theme: input.review?.nextFocus || `Keep ${input.goal.title} moving with the clearest visible next step.`,
+    theme: input.review?.nextFocus || (locale === "ja" ? `${input.goal.title} を、いちばん見えている次の一手で前に進めます。` : `Keep ${input.goal.title} moving with the clearest visible next step.`),
     quests: suggestions,
     notes: [
-      input.goal.todayCapacity ? `Today's capacity: ${input.goal.todayCapacity}` : "Plan one clean work block first.",
-      input.blockers.length ? "One suggestion may need unblock wording before building." : "No active blocker is recorded right now.",
+      input.goal.todayCapacity
+        ? (locale === "ja" ? `今日の使える時間: ${input.goal.todayCapacity}` : `Today's capacity: ${input.goal.todayCapacity}`)
+        : (locale === "ja" ? "まずはきれいな1ブロックだけ確保します。" : "Plan one clean work block first."),
+      input.blockers.length
+        ? (locale === "ja" ? "始める前に、詰まりをほどく言い方が必要な候補があります。" : "One suggestion may need unblock wording before building.")
+        : (locale === "ja" ? "いま未解決の詰まりは記録されていません。" : "No active blocker is recorded right now."),
     ],
     mode: "heuristic",
   };
 }
 
-export function buildHeuristicBlockerReroute(goal: Goal, blocker: { title: string; description: string; blockerType: string }): BlockerReroute {
+export function buildHeuristicBlockerReroute(goal: Goal, blocker: { title: string; description: string; blockerType: string }, locale: UiLocale = "ja"): BlockerReroute {
   return {
     blockerLabel: blocker.title,
-    diagnosis: blocker.description || `${blocker.blockerType} is slowing ${goal.title}.`,
-    nextStep: "Shrink the blocker into one decision or one question you can answer now.",
-    alternateRoute: "If the blocker stays, route around it with a smaller proof step.",
-    reframing: "The goal does not need the full solution before the next move becomes valid.",
+    diagnosis: blocker.description || (locale === "ja" ? `${goal.title} は ${blocker.blockerType} で進みが鈍っています。` : `${blocker.blockerType} is slowing ${goal.title}.`),
+    nextStep: locale === "ja" ? "この詰まりを、いま答えられる1つの判断か1つの問いに縮めます。" : "Shrink the blocker into one decision or one question you can answer now.",
+    alternateRoute: locale === "ja" ? "まだ残るなら、小さく証明できる別ルートで先に進みます。" : "If the blocker stays, route around it with a smaller proof step.",
+    reframing: locale === "ja" ? "次の一手が有効になる前に、全部を解く必要はありません。" : "The goal does not need the full solution before the next move becomes valid.",
     mode: "heuristic",
   };
 }
