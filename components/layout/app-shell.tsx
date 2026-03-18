@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { PropsWithChildren } from "react";
+import { useState, type PropsWithChildren } from "react";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { StatusPill } from "@/components/shared/status-pill";
@@ -14,6 +14,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const { state, backendMode, aiMode, updateUiPreferences } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
+  const [showEnvironment, setShowEnvironment] = useState(false);
   const navItems = [
     { href: "/portfolio", label: copy.nav.portfolio },
     { href: "/intake", label: copy.nav.intake },
@@ -24,7 +25,7 @@ export function AppShell({ children }: PropsWithChildren) {
   ];
 
   const focusGoalTitle = state.focusGoal?.title ?? copy.portfolio.focusEmpty;
-  const nextRestartLabel = state.resumeQueue[0]?.goal?.title ?? state.todaySuggestions[0]?.title ?? copy.common.openPortfolio;
+  const nextRestartLabel = state.resumeQueue[0]?.goal?.title ?? state.todaySuggestions[0]?.title ?? copy.common.noData;
   const activeGoalLabel = `${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit}`;
 
   async function handleLocaleChange(nextLocale: UiLocale) {
@@ -67,40 +68,51 @@ export function AppShell({ children }: PropsWithChildren) {
             </div>
           </div>
 
-          <div>
-            <p className="eyebrow">{copy.shell.mirror}</p>
-            <strong>{state.mirrorCard.headline}</strong>
-            <p className="muted">{copy.shell.focus}: {focusGoalTitle}</p>
-            <p className="muted">{copy.shell.nextRestart}: {nextRestartLabel}</p>
-            <div className="pill-row">
-              <span className="pill pill--active">{copy.shell.activeGoalsPill} {activeGoalLabel}</span>
-              <StatusPill label={backendMode} />
-              <StatusPill label={aiMode} />
-              <StatusPill label={state.mirrorCard.needsReturn ? "detour" : "fight"} />
+          <div className="stack-md">
+            <div>
+              <p className="eyebrow">{copy.shell.mirror}</p>
+              <strong>{state.mirrorCard.headline}</strong>
+              <p className="muted">{copy.shell.focus}: {focusGoalTitle}</p>
+              <p className="muted">{copy.shell.nextRestart}: {nextRestartLabel}</p>
             </div>
+            <div className="button-row">
+              <span className="pill pill--active">{copy.shell.activeGoalsPill} {activeGoalLabel}</span>
+              {state.mirrorCard.needsReturn ? (
+                <Link className="button button--secondary" href="/return">
+                  {copy.common.openReturn}
+                </Link>
+              ) : null}
+              <button className="button button--ghost" onClick={() => setShowEnvironment((current) => !current)} type="button">
+                {showEnvironment ? copy.common.hideDetails : copy.common.showDetails}
+              </button>
+            </div>
+            {showEnvironment ? (
+              <div className="stack-md">
+                <p className="eyebrow">{copy.shell.environment}</p>
+                <div className="pill-row">
+                  <StatusPill label={backendMode} />
+                  <StatusPill label={aiMode} />
+                  <StatusPill label={state.mirrorCard.needsReturn ? "detour" : "fight"} />
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </aside>
 
       <main className="shell__main">
-        <header className="topbar surface">
+        <header className="topbar topbar--compact surface">
           <div>
-            <p className="eyebrow">{copy.shell.portfolioHealth}</p>
-            <h2>{copy.shell.healthTitle}</h2>
+            <p className="eyebrow">{copy.shell.focus}</p>
+            <h2>{focusGoalTitle}</h2>
           </div>
-          <div className="topbar__stats">
-            <div>
-              <span className="eyebrow">{copy.shell.activeGoals}</span>
-              <strong>{activeGoalLabel}</strong>
-            </div>
-            <div>
-              <span className="eyebrow">{copy.shell.mainToday}</span>
-              <strong>{state.mirrorCard.mainMinutes}{copy.common.minutes}</strong>
-            </div>
-            <div>
-              <span className="eyebrow">{copy.shell.switchDensity}</span>
-              <strong>{state.mirrorCard.switchDensity}</strong>
-            </div>
+          <div className="button-row">
+            <span className="pill pill--active">{copy.shell.activeGoals} {activeGoalLabel}</span>
+            {state.mirrorCard.needsReturn ? (
+              <Link className="button button--secondary" href="/return">
+                {copy.common.openReturn}
+              </Link>
+            ) : null}
           </div>
         </header>
         {children}

@@ -27,8 +27,17 @@ const openAiModel = process.env.OPENAI_MODEL || "gpt-5-mini";
 function withLocaleInstruction(instructions: string, locale: UiLocale): string {
   const localeInstruction =
     locale === "ja"
-      ? "Respond in natural Japanese that fits a non-engineer product UI. Keep the wording concrete, calm, and concise."
-      : "Respond in concise natural English that fits a product UI for non-engineers.";
+      ? [
+          "Respond in natural Japanese for a non-engineer product UI.",
+          "Use short, calm sentences in a gentle plain style.",
+          "Keep the wording concrete and easy to understand.",
+          "Do not sound technical, moralizing, or overly formal.",
+        ].join(" ")
+      : [
+          "Respond in concise natural English for a non-engineer product UI.",
+          "Use short, calm sentences with concrete wording.",
+          "Do not sound technical, moralizing, or overly formal.",
+        ].join(" ");
 
   return `${instructions}\n\n${localeInstruction}`;
 }
@@ -91,6 +100,41 @@ async function callStructuredOutput<T>(
   }
 }
 
+function normalizeGeneratedString(value: string, locale: UiLocale): string {
+  const collapsed = value
+    .replace(/\r\n/g, "\n")
+    .replace(/[\t ]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[•●▪■]\s*/g, "")
+    .trim()
+    .replace(/^[「『"'\s]+|[」』"'\s]+$/g, "");
+
+  const localeTidy = locale === "ja"
+    ? collapsed
+        .replace(/\s+([。、！？」])/g, "$1")
+        .replace(/([「『])\s+/g, "$1")
+    : collapsed.replace(/\s{2,}/g, " ");
+
+  return localeTidy.length > 240 ? `${localeTidy.slice(0, 239).trimEnd()}…` : localeTidy;
+}
+
+function normalizeGeneratedValue<T>(value: T, locale: UiLocale): T {
+  if (typeof value === "string") {
+    return normalizeGeneratedString(value, locale) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeGeneratedValue(item, locale)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, normalizeGeneratedValue(item, locale)]),
+    ) as T;
+  }
+
+  return value;
+}
 const refinementSchema = {
   type: "object",
   additionalProperties: false,
@@ -229,7 +273,7 @@ export async function generateIntakeRefinement(
     locale,
   );
 
-  return result ? { ...result, mode: "ai" } : fallback;
+  return result ? { ...normalizeGeneratedValue(result, locale), mode: "ai" } : fallback;
 }
 
 export async function generateQuestMap(goal: Goal, locale: UiLocale = "ja"): Promise<MapDraft> {
@@ -244,7 +288,7 @@ export async function generateQuestMap(goal: Goal, locale: UiLocale = "ja"): Pro
     locale,
   );
 
-  return result ? { ...result, mode: "ai" } : fallback;
+  return result ? { ...normalizeGeneratedValue(result, locale), mode: "ai" } : fallback;
 }
 
 export async function generateTodayPlan(
@@ -265,7 +309,7 @@ export async function generateTodayPlan(
     locale,
   );
 
-  return result ? { ...result, mode: "ai" } : fallback;
+  return result ? { ...normalizeGeneratedValue(result, locale), mode: "ai" } : fallback;
 }
 
 export async function generateBlockerReroute(
@@ -284,7 +328,7 @@ export async function generateBlockerReroute(
     locale,
   );
 
-  return result ? { ...result, mode: "ai" } : fallback;
+  return result ? { ...normalizeGeneratedValue(result, locale), mode: "ai" } : fallback;
 }
 
 
@@ -303,6 +347,9 @@ export async function generateReviewFocusReasons(
     "Use only the candidate data you are given.",
     "Return exactly one short sentence for each candidate.",
     "Do not moralize. Do not mention missing data. Keep the wording concrete and calm.",
+    locale === "ja"
+      ? "Write natural Japanese that feels calm and easy to read for a non-engineer."
+      : "Write natural product English that feels calm and easy to read.",
   ].join("\n");
 
   const result = await callStructuredOutput<{ reasons: Array<{ goalId: string; reason: string }> }>(
@@ -321,7 +368,7 @@ export async function generateReviewFocusReasons(
   const aiMap = new Map(
     result.reasons
       .filter((item) => typeof item.goalId === "string" && typeof item.reason === "string" && item.reason.trim().length > 0)
-      .map((item) => [item.goalId, item.reason.trim()]),
+      .map((item) => [item.goalId, normalizeGeneratedString(item.reason, locale)]),
   );
 
   return candidates.map((candidate) => {
@@ -341,4 +388,7 @@ export async function generateReviewFocusReasons(
     };
   });
 }
+
+
+
 

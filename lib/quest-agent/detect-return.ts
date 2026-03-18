@@ -45,38 +45,37 @@ function buildFlagMessage(flagType: MetaWorkFlagType, metrics: LeadMetricsDaily,
   switch (flagType) {
     case "main_work_absent":
       return locale === "ja"
-        ? `本丸の作業はまだ ${metrics.mainWorkRatio === 0 ? "0分" : "15分以下"}です。`
+        ? `メインクエストの作業はまだ ${metrics.mainWorkRatio === 0 ? "0 分" : "15 分以下"}です。`
         : `Main work is still at ${metrics.mainWorkRatio === 0 ? "0 minutes" : "15 minutes or less"}.`;
     case "meta_overweight":
       return locale === "ja"
-        ? "回避ぎみ判定の改善 / その他が、本丸より重くなっています。"
+        ? "改善やその他の作業が、メインクエストより長く続いています。"
         : "Avoidant improve / other work is outweighing main work.";
     case "start_delay":
       if (metrics.startDelayMinutes === null) {
         return locale === "ja"
-          ? "最初の作業から、まだ本丸に入れていません。"
+          ? "最初の作業のあと、まだメインクエストに入れていません。"
           : "Main work has not started yet after the first session.";
       }
       return locale === "ja"
-        ? `最初の作業から本丸開始まで ${metrics.startDelayMinutes}分かかっています。`
+        ? `最初の作業からメインクエストに入るまで ${metrics.startDelayMinutes} 分かかっています。`
         : `It took ${metrics.startDelayMinutes} minutes to reach main work after the first session.`;
     case "switch_density":
       return locale === "ja"
-        ? `goal / category の切替が ${metrics.switchDensity} 回ありました。`
+        ? `ゴールや作業の切替が ${metrics.switchDensity} 回あります。`
         : `There were ${metrics.switchDensity} goal / category switches.`;
     case "unfinished_chain":
       return locale === "ja"
-        ? `${closedWithoutArtifact} 件の作業が、残したものなしで閉じられています。`
+        ? `${closedWithoutArtifact} 回のセッションが、残しものなしで終わっています。`
         : `${closedWithoutArtifact} sessions ended without leaving an artifact.`;
     case "uncertainty_loop":
       return locale === "ja"
-        ? "不明確さや回避ぎみ判定が続いているので、短い戻し方を決める余地があります。"
+        ? "不明や回避寄りのチェックが続いています。短く戻すと進めやすくなります。"
         : "Unclear or avoidant checks are stacking up, so a short return step may help.";
     default:
       return locale === "ja" ? "短く戻すポイントがあります。" : "There is a short return point to consider.";
   }
 }
-
 function buildEmptyMetrics(dayKey: string): LeadMetricsDaily {
   return {
     dayKey,
@@ -259,20 +258,20 @@ export function buildMirrorCard(state: PersistedState, locale: UiLocale = state.
     return {
       dayKey,
       headline: todaySessions.length
-        ? (locale === "ja" ? "本丸に沿って進めています。" : "Work is still tracking the main goal.")
+        ? (locale === "ja" ? "メインクエストに沿って進めています。" : "Work is still tracking the main goal.")
         : (locale === "ja" ? "まだ作業は始まっていません。" : "No work session has started yet."),
       facts: todaySessions.length
         ? [
             locale === "ja"
-              ? `本丸 ${mainMinutes}分 / メタ ${metaMinutes}分`
+              ? `メインクエスト ${mainMinutes} 分 / メタ ${metaMinutes} 分`
               : `Main ${mainMinutes} minutes / Meta ${metaMinutes} minutes`,
             todayMetrics.startDelayMinutes === null
-              ? (locale === "ja" ? "本丸開始までの遅れはまだ未計測です。" : "Start delay is not measured yet.")
+              ? (locale === "ja" ? "メインクエスト開始までの遅れはまだ未計測です。" : "Start delay is not measured yet.")
               : (locale === "ja"
-                  ? `本丸開始まで ${todayMetrics.startDelayMinutes}分でした。`
+                  ? `メインクエスト開始まで ${todayMetrics.startDelayMinutes} 分でした。`
                   : `It took ${todayMetrics.startDelayMinutes} minutes to reach main work.`),
           ]
-        : [locale === "ja" ? "Session Start から最初の15分を切り出せます。" : "Use Session Start to carve out the first 15 minutes."],
+        : [locale === "ja" ? "Session Start から最初の 15 分を切り出せます。" : "Use Session Start to carve out the first 15 minutes."],
       needsReturn: false,
       mainMinutes,
       metaMinutes,
