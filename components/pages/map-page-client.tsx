@@ -7,11 +7,90 @@ import { useRouter } from "next/navigation";
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
+import { getLabel, localizeRuntimeError } from "@/lib/quest-agent/copy";
 import type { MapDraft } from "@/lib/quest-agent/types";
 
 export function MapPageClient() {
   const router = useRouter();
   const { state, aiEnabled, clientStorageMode, generateMap, replaceMap } = useQuestAgent();
+  const locale = state.uiPreferences.locale;
+  const copy = locale === "ja"
+    ? {
+        page: "進め方",
+        noFocusTitle: "まだ本丸が決まっていません。",
+        noFocusBody: "進め方は本丸ごとに持つので、先にポートフォリオで前に置くゴールを1つ決めます。",
+        openPortfolio: "ポートフォリオを開く",
+        heroTitle: "本丸を、再開しやすい段階と作業に分けます。",
+        lead: "進め方は大きな計画ではなく、戻りやすい順番づけです。マイルストーンと作業を小さく切って、今日の判断を軽くします。",
+        generateAi: "AI で下書きを作る",
+        generateHeuristic: "ルールで下書きを作る",
+        saveRoute: "進め方を保存",
+        storedRoute: "保存済みの進め方",
+        storedLead: "いまの本丸にひもづくルート",
+        draftTitle: "編集用の下書き",
+        draftLead: "保存前に言い回しと粒度を整える",
+        emptyStored: "まだ保存済みの進め方はありません。下書きを作ってから保存します。",
+        emptyDraft: "下書きを作ると、ここでマイルストーンと作業を調整できます。",
+        messages: {
+          generatedAi: "AI が進め方の下書きを作りました。",
+          generatedHeuristic: "ルールで進め方の下書きを作りました。",
+          saved: "進め方を保存しました。次は今日の進め方を決めます。",
+        },
+        errors: {
+          generate: "進め方の下書きを作れませんでした。",
+          save: "進め方を保存できませんでした。",
+        },
+        fields: {
+          routeSummary: "進め方の要約",
+          milestoneTitle: "段階の名前",
+          targetDate: "目安日",
+          description: "説明",
+          questTitle: "作業名",
+          priority: "優先度",
+          type: "種類",
+          minutes: "見積もり時間",
+          dueDate: "期限",
+        },
+        milestoneLabel: "段階",
+      }
+    : {
+        page: "Quest Map",
+        noFocusTitle: "Select a focus goal first.",
+        noFocusBody: "Each route belongs to one focus goal, so pick the goal that should stay in front before editing the map.",
+        openPortfolio: "Open Portfolio",
+        heroTitle: "Break the focus goal into resumable stages and quests.",
+        lead: "The map is not a giant plan. It is a route you can restart. Keep milestones and quests small so today stays easy to choose.",
+        generateAi: "Generate draft with AI",
+        generateHeuristic: "Generate draft heuristically",
+        saveRoute: "Save route",
+        storedRoute: "Stored route",
+        storedLead: "The route attached to the current focus goal",
+        draftTitle: "Editable draft",
+        draftLead: "Tune wording and scope before saving",
+        emptyStored: "No saved route yet. Generate a draft first.",
+        emptyDraft: "Generate a draft to edit milestones and quests here.",
+        messages: {
+          generatedAi: "AI drafted a route.",
+          generatedHeuristic: "Heuristic mode drafted a route.",
+          saved: "Route saved. Next, decide today's route.",
+        },
+        errors: {
+          generate: "Quest Map generation failed.",
+          save: "Failed to save Quest Map.",
+        },
+        fields: {
+          routeSummary: "Route summary",
+          milestoneTitle: "Milestone title",
+          targetDate: "Target date",
+          description: "Description",
+          questTitle: "Quest title",
+          priority: "Priority",
+          type: "Type",
+          minutes: "Minutes",
+          dueDate: "Due date",
+        },
+        milestoneLabel: "Milestone",
+      };
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<MapDraft | null>(null);
   const [message, setMessage] = useState("");
@@ -20,11 +99,11 @@ export function MapPageClient() {
   if (!state.currentGoal) {
     return (
       <SectionCard>
-        <p className="eyebrow">Quest Map</p>
-        <h1>Select a focus goal first.</h1>
-        <p className="muted">Portfolio decides which goal gets the front slot before the route is edited here.</p>
+        <p className="eyebrow">{copy.page}</p>
+        <h1>{copy.noFocusTitle}</h1>
+        <p className="muted">{copy.noFocusBody}</p>
         <Link className="button" href="/portfolio">
-          Open Portfolio
+          {copy.openPortfolio}
         </Link>
       </SectionCard>
     );
@@ -84,11 +163,12 @@ export function MapPageClient() {
           currentState: state.currentGoal!.currentState,
           constraints: state.currentGoal!.constraints,
           concerns: state.currentGoal!.concerns,
+          locale,
         });
         setDraft(nextDraft);
-        setMessage(nextDraft.mode === "ai" ? "AI drafted a route." : "Heuristic mode drafted a route.");
+        setMessage(nextDraft.mode === "ai" ? copy.messages.generatedAi : copy.messages.generatedHeuristic);
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Quest Map generation failed.");
+        setError(localizeRuntimeError(locale, nextError, copy.errors.generate));
       }
     });
   }
@@ -107,13 +187,13 @@ export function MapPageClient() {
           milestones: draft.milestones,
           mode: draft.mode,
         });
-        setMessage("Quest Map saved. Next, decide today's route.");
+        setMessage(copy.messages.saved);
         if (clientStorageMode === "server-backed") {
           router.refresh();
         }
         router.push("/today");
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Failed to save Quest Map.");
+        setError(localizeRuntimeError(locale, nextError, copy.errors.save));
       }
     });
   }
@@ -122,16 +202,16 @@ export function MapPageClient() {
     <div className="page-stack">
       <section className="hero-panel surface">
         <div>
-          <p className="eyebrow">Quest Map</p>
-          <h1>Break the focus goal into milestones and quests.</h1>
-          <p className="lead">The map belongs to the current focus goal, so it can stay small, resumable, and ready for review.</p>
+          <p className="eyebrow">{copy.page}</p>
+          <h1>{copy.heroTitle}</h1>
+          <p className="lead">{copy.lead}</p>
         </div>
         <div className="hero-panel__actions">
           <button className="button" onClick={handleGenerate} disabled={isPending} type="button">
-            {aiEnabled ? "Generate with AI" : "Generate heuristically"}
+            {aiEnabled ? copy.generateAi : copy.generateHeuristic}
           </button>
           <button className="button button--secondary" onClick={handleSave} disabled={isPending || !draft} type="button">
-            Save Route
+            {copy.saveRoute}
           </button>
         </div>
       </section>
@@ -143,8 +223,9 @@ export function MapPageClient() {
         <SectionCard>
           <div className="section-header">
             <div>
-              <p className="eyebrow">Stored Route</p>
+              <p className="eyebrow">{copy.storedRoute}</p>
               <h2>{state.currentGoal.title}</h2>
+              <p className="muted">{copy.storedLead}</p>
             </div>
             <StatusPill label={state.currentGoal.status} />
           </div>
@@ -157,7 +238,7 @@ export function MapPageClient() {
                   <div className="milestone-card" key={milestone.id}>
                     <div className="milestone-card__header">
                       <div>
-                        <p className="eyebrow">Milestone {milestone.sequence}</p>
+                        <p className="eyebrow">{copy.milestoneLabel} {milestone.sequence}</p>
                         <h3>{milestone.title}</h3>
                       </div>
                       <StatusPill label={milestone.status} />
@@ -182,38 +263,43 @@ export function MapPageClient() {
               })}
             </div>
           ) : (
-            <p className="muted">No saved route yet. Generate a draft and save it.</p>
+            <p className="muted">{copy.emptyStored}</p>
           )}
         </SectionCard>
 
         <SectionCard>
           <div className="section-header">
             <div>
-              <p className="eyebrow">Editable Draft</p>
-              <h2>Tune the route before saving</h2>
+              <p className="eyebrow">{copy.draftTitle}</p>
+              <h2>{copy.draftLead}</h2>
             </div>
           </div>
 
           {draft ? (
             <div className="stack-lg">
               <label className="field field--full">
-                <span>Route Summary</span>
-                <textarea className="textarea" rows={3} value={draft.routeSummary} onChange={(event) => setDraft((current) => (current ? { ...current, routeSummary: event.target.value } : current))} />
+                <span>{copy.fields.routeSummary}</span>
+                <textarea
+                  className="textarea"
+                  rows={3}
+                  value={draft.routeSummary}
+                  onChange={(event) => setDraft((current) => (current ? { ...current, routeSummary: event.target.value } : current))}
+                />
               </label>
 
               {draft.milestones.map((milestone, milestoneIndex) => (
                 <div className="milestone-card" key={milestone.tempId}>
                   <div className="form-grid">
                     <label className="field">
-                      <span>Milestone Title</span>
+                      <span>{copy.fields.milestoneTitle}</span>
                       <input className="input" value={milestone.title} onChange={(event) => updateMilestone(milestoneIndex, "title", event.target.value)} />
                     </label>
                     <label className="field">
-                      <span>Target Date</span>
+                      <span>{copy.fields.targetDate}</span>
                       <input className="input" type="date" value={milestone.targetDate ?? ""} onChange={(event) => updateMilestone(milestoneIndex, "targetDate", event.target.value)} />
                     </label>
                     <label className="field field--full">
-                      <span>Description</span>
+                      <span>{copy.fields.description}</span>
                       <textarea className="textarea" rows={3} value={milestone.description} onChange={(event) => updateMilestone(milestoneIndex, "description", event.target.value)} />
                     </label>
                   </div>
@@ -222,35 +308,35 @@ export function MapPageClient() {
                     {milestone.quests.map((quest, questIndex) => (
                       <div className="quest-edit-card" key={`${milestone.tempId}-${questIndex}`}>
                         <label className="field field--full">
-                          <span>Quest Title</span>
+                          <span>{copy.fields.questTitle}</span>
                           <input className="input" value={quest.title} onChange={(event) => updateQuest(milestoneIndex, questIndex, "title", event.target.value)} />
                         </label>
                         <label className="field field--full">
-                          <span>Description</span>
+                          <span>{copy.fields.description}</span>
                           <textarea className="textarea" rows={2} value={quest.description} onChange={(event) => updateQuest(milestoneIndex, questIndex, "description", event.target.value)} />
                         </label>
                         <div className="form-grid form-grid--tight">
                           <label className="field">
-                            <span>Priority</span>
+                            <span>{copy.fields.priority}</span>
                             <select className="input" value={quest.priority} onChange={(event) => updateQuest(milestoneIndex, questIndex, "priority", event.target.value)}>
-                              <option value="high">high</option>
-                              <option value="medium">medium</option>
-                              <option value="low">low</option>
+                              <option value="high">{getLabel(locale, "high")}</option>
+                              <option value="medium">{getLabel(locale, "medium")}</option>
+                              <option value="low">{getLabel(locale, "low")}</option>
                             </select>
                           </label>
                           <label className="field">
-                            <span>Type</span>
+                            <span>{copy.fields.type}</span>
                             <select className="input" value={quest.questType} onChange={(event) => updateQuest(milestoneIndex, questIndex, "questType", event.target.value)}>
-                              <option value="main">main</option>
-                              <option value="side">side</option>
+                              <option value="main">{getLabel(locale, "main")}</option>
+                              <option value="side">{getLabel(locale, "side")}</option>
                             </select>
                           </label>
                           <label className="field">
-                            <span>Minutes</span>
+                            <span>{copy.fields.minutes}</span>
                             <input className="input" type="number" min={5} step={5} value={quest.estimatedMinutes ?? ""} onChange={(event) => updateQuest(milestoneIndex, questIndex, "estimatedMinutes", event.target.value)} />
                           </label>
                           <label className="field">
-                            <span>Due Date</span>
+                            <span>{copy.fields.dueDate}</span>
                             <input className="input" type="date" value={quest.dueDate ?? ""} onChange={(event) => updateQuest(milestoneIndex, questIndex, "dueDate", event.target.value)} />
                           </label>
                         </div>
@@ -261,7 +347,7 @@ export function MapPageClient() {
               ))}
             </div>
           ) : (
-            <p className="muted">Generate a route draft to edit milestones and quests here.</p>
+            <p className="muted">{copy.emptyDraft}</p>
           )}
         </SectionCard>
       </div>

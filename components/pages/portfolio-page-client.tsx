@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
@@ -8,8 +8,9 @@ import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { StatusPill } from "@/components/shared/status-pill";
+import { findLatestArtifactNoteForGoal, findLatestDoneWhenForGoal } from "@/lib/quest-agent/derive";
 import { getCopy, getLabel, interpolate, localizeRuntimeError } from "@/lib/quest-agent/copy";
-import type { Goal, ResumeQueueEntry } from "@/lib/quest-agent/types";
+import type { Goal, ResumeQueueEntry, ResumeTriggerType } from "@/lib/quest-agent/types";
 
 function formatResumeHours(locale: "ja" | "en", value: number | null): string {
   if (value === null) {
@@ -18,12 +19,22 @@ function formatResumeHours(locale: "ja" | "en", value: number | null): string {
   return locale === "ja" ? `${value.toFixed(1)}時間` : `${value.toFixed(1)}h`;
 }
 
-function defaultParkingForm() {
+function formatResumeTrigger(locale: "ja" | "en", triggerType: ResumeTriggerType, value: string): string {
+  if (triggerType === "date") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) {
+      return new Intl.DateTimeFormat(locale === "ja" ? "ja-JP" : "en-US", { dateStyle: "medium" }).format(new Date(parsed));
+    }
+  }
+  return value || "-";
+}
+
+function defaultParkingForm(parkingNote = "", nextRestartStep = "") {
   return {
     stopMode: "hold",
     reason: "",
-    parkingNote: "",
-    nextRestartStep: "",
+    parkingNote,
+    nextRestartStep,
     resumeTriggerType: "manual",
     resumeTriggerText: "",
   };
@@ -73,6 +84,13 @@ export function PortfolioPageClient() {
     if (clientStorageMode === "server-backed") {
       router.refresh();
     }
+  }
+
+  function buildParkingDefaults(goalId: string) {
+    return defaultParkingForm(
+      findLatestArtifactNoteForGoal(state.workSessions, goalId),
+      findLatestDoneWhenForGoal(state.buildImproveDecisions, goalId),
+    );
   }
 
   function handleSaveWip() {
@@ -128,7 +146,7 @@ export function PortfolioPageClient() {
           reason: parkingForm.reason,
           parkingNote: parkingForm.parkingNote,
           nextRestartStep: parkingForm.nextRestartStep,
-          resumeTriggerType: parkingForm.resumeTriggerType as "manual" | "date" | "condition",
+          resumeTriggerType: parkingForm.resumeTriggerType as ResumeTriggerType,
           resumeTriggerText: parkingForm.resumeTriggerText,
         });
         setParkingGoalId(null);
@@ -139,6 +157,23 @@ export function PortfolioPageClient() {
         setError(localizeRuntimeError(locale, nextError, locale === "ja" ? "保留にできませんでした。" : "Failed to park goal."));
       }
     });
+  }
+
+  function renderRestartDetails(item: Pick<ResumeQueueEntry, "reason" | "parkingNote" | "nextRestartStep" | "resumeTriggerType" | "resumeTriggerText" | "isOverdue">) {
+    return (
+      <div className="stack-md">
+        <p><strong>{copy.portfolio.queue.whyStopped}:</strong> {item.reason || copy.common.noData}</p>
+        <p><strong>{copy.portfolio.fields.parkingNote}:</strong> {item.parkingNote || copy.common.noData}</p>
+        <p><strong>{copy.portfolio.queue.nextRestart}:</strong> {item.nextRestartStep || copy.common.noData}</p>
+        <div className="stack-md">
+          <div className="pill-row">
+            <StatusPill label={item.resumeTriggerType} />
+            {item.isOverdue ? <StatusPill label="blocked" /> : null}
+          </div>
+          <p><strong>{copy.portfolio.queue.trigger}:</strong> {formatResumeTrigger(locale, item.resumeTriggerType, item.resumeTriggerText)}</p>
+        </div>
+      </div>
+    );
   }
 
   function renderGoalCard(goal: Goal) {
@@ -172,7 +207,7 @@ export function PortfolioPageClient() {
                 disabled={isPending}
                 onClick={() => {
                   setParkingGoalId(goal.id);
-                  setParkingForm(defaultParkingForm());
+                  setParkingForm(buildParkingDefaults(goal.id));
                 }}
                 type="button"
               >
@@ -185,6 +220,8 @@ export function PortfolioPageClient() {
             )}
           </div>
         </div>
+
+        {queueItem ? renderRestartDetails(queueItem) : null}
 
         {parkingGoalId === goal.id ? (
           <div className="form-grid portfolio-form-grid">
@@ -262,10 +299,7 @@ export function PortfolioPageClient() {
             {copy.portfolio.buttons.resumeGoal}
           </button>
         </div>
-        <p><strong>{copy.portfolio.queue.whyStopped}:</strong> {item.reason}</p>
-        <p><strong>{copy.portfolio.fields.parkingNote}:</strong> {item.parkingNote}</p>
-        <p><strong>{copy.portfolio.queue.nextRestart}:</strong> {item.nextRestartStep}</p>
-        <p><strong>{copy.portfolio.queue.trigger}:</strong> {item.resumeTriggerText}</p>
+        {renderRestartDetails(item)}
       </div>
     );
   }
@@ -372,6 +406,8 @@ export function PortfolioPageClient() {
                         <div className="pill-row">
                           <StatusPill label={goal.status} />
                           {queueItem ? <StatusPill label={queueItem.stopMode} /> : null}
+                          {queueItem ? <StatusPill label={queueItem.resumeTriggerType} /> : null}
+                          {queueItem?.isOverdue ? <StatusPill label="blocked" /> : null}
                         </div>
                         <h3>{goal.title}</h3>
                         <p className="muted">{queueItem?.reason || goal.description || copy.common.noSummary}</p>
@@ -380,7 +416,7 @@ export function PortfolioPageClient() {
                         {copy.portfolio.buttons.resumeGoal}
                       </button>
                     </div>
-                    {queueItem ? <p><strong>{copy.portfolio.queue.nextRestart}:</strong> {queueItem.nextRestartStep}</p> : null}
+                    {queueItem ? renderRestartDetails(queueItem) : null}
                   </div>
                 );
               })}

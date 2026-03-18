@@ -77,6 +77,19 @@ const reviewSnapshotSchema = z.object({
   createdAt: z.string().trim(),
 });
 
+const reviewFocusCandidateSchema = z.object({
+  goalId: z.string().uuid(),
+  title: z.string().trim().min(1),
+  description: z.string().trim().default(""),
+  currentState: z.string().trim().default(""),
+  status: z.enum(goalStatuses),
+  isInResumeQueue: z.boolean(),
+  isOverdue: z.boolean(),
+  openBlockerCount: z.number().int().min(0),
+  activeQuestCount: z.number().int().min(0),
+  updatedAt: z.string().trim().min(1),
+});
+
 export const goalInputSchema = z.object({
   id: z.string().uuid().optional(),
   title: z.string().trim().min(1, "Goal title is required"),
@@ -246,6 +259,7 @@ export const intakeRefineRequestSchema = z.object({
   constraints: lineArraySchema,
   concerns: z.string().trim().default(""),
   todayCapacity: z.string().trim().default(""),
+  locale: z.enum(uiLocales).optional().default("ja"),
 });
 
 export const generateMapRequestSchema = z.object({
@@ -258,6 +272,7 @@ export const generateMapRequestSchema = z.object({
   currentState: z.string().trim().default(""),
   constraints: lineArraySchema,
   concerns: z.string().trim().default(""),
+  locale: z.enum(uiLocales).optional().default("ja"),
 });
 
 export const planTodayRequestSchema = z
@@ -267,6 +282,7 @@ export const planTodayRequestSchema = z
     questSnapshots: z.array(questSnapshotSchema).optional(),
     blockerSnapshots: z.array(blockerSnapshotSchema).optional(),
     latestReviewSnapshot: reviewSnapshotSchema.optional().nullable(),
+    locale: z.enum(uiLocales).optional().default("ja"),
   })
   .refine((value) => Boolean(value.goalId || value.goalSnapshot), {
     message: "goalId or goalSnapshot is required",
@@ -280,10 +296,17 @@ export const rerouteRequestSchema = z
     blockerType: z.enum(blockerTypes).default("unknown"),
     relatedQuestId: z.string().uuid().optional().nullable(),
     goalSnapshot: goalSnapshotSchema.optional(),
+    locale: z.enum(uiLocales).optional().default("ja"),
   })
   .refine((value) => Boolean(value.goalId || value.goalSnapshot), {
     message: "goalId or goalSnapshot is required",
   });
+
+export const reviewFocusReasonsRequestSchema = z.object({
+  currentFocusGoalId: z.string().uuid().nullable().optional().default(null),
+  candidates: z.array(reviewFocusCandidateSchema).default([]),
+  locale: z.enum(uiLocales).optional().default("ja"),
+});
 
 export const reservedTrackingSchemas = {
   buildImproveModes: z.enum(buildImproveModes),

@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { generateQuestMap } from "@/lib/quest-agent/server/ai";
 import { generateMapRequestSchema } from "@/lib/quest-agent/validation";
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       updatedAt: new Date().toISOString(),
     };
 
-    const map = await generateQuestMap(goal);
+    const map = await generateQuestMap(goal, payload.data.locale);
     return NextResponse.json({ data: map });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to generate Quest Map." }, { status: 500 });

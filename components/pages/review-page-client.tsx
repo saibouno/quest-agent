@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -8,8 +8,9 @@ import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { StatusPill } from "@/components/shared/status-pill";
+import { buildHeuristicReviewFocusReasons, buildReviewFocusCandidates } from "@/lib/quest-agent/derive";
 import { getCopy, localizeRuntimeError } from "@/lib/quest-agent/copy";
-import type { Goal, LeadMetricsDaily } from "@/lib/quest-agent/types";
+import type { Goal, LeadMetricsDaily, ReviewFocusCandidateReason } from "@/lib/quest-agent/types";
 
 function todayOffset(days: number) {
   const date = new Date();
@@ -30,12 +31,13 @@ function formatMinutes(locale: "ja" | "en", value: number | null) {
 
 export function ReviewPageClient() {
   const router = useRouter();
-  const { state, clientStorageMode, createReview, selectFocusGoal } = useQuestAgent();
+  const { state, aiEnabled, clientStorageMode, createReview, selectFocusGoal, generateReviewFocusReasons } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [focusReasons, setFocusReasons] = useState<ReviewFocusCandidateReason[]>([]);
   const [form, setForm] = useState({
     periodStart: todayOffset(-6),
     periodEnd: todayOffset(0),
@@ -47,10 +49,10 @@ export function ReviewPageClient() {
 
   const reviewGoal = state.focusGoal ?? state.activeGoals[0] ?? state.goals.find((goal) => goal.status !== "completed") ?? null;
   const latestLeadMetrics: LeadMetricsDaily | null = state.leadMetricsDaily[0] ?? null;
-  const focusCandidates = useMemo(
-    () => state.goals.filter((goal) => goal.status !== "completed").slice(0, 4),
-    [state.goals],
-  );
+  const focusCandidates = useMemo(() => buildReviewFocusCandidates(state), [state]);
+  const heuristicReasons = useMemo(() => buildHeuristicReviewFocusReasons(focusCandidates, locale), [focusCandidates, locale]);
+  const focusReasonMap = useMemo(() => new Map(focusReasons.map((item) => [item.goalId, item])), [focusReasons]);
+  const goalMap = useMemo(() => new Map(state.goals.map((goal) => [goal.id, goal])), [state.goals]);
 
   const stats = useMemo(
     () => [
@@ -63,6 +65,39 @@ export function ReviewPageClient() {
     ],
     [copy, latestLeadMetrics, locale],
   );
+
+  useEffect(() => {
+    setFocusReasons(heuristicReasons);
+  }, [heuristicReasons]);
+
+  const refreshFocusReasons = useEffectEvent(async (candidates: typeof focusCandidates) => {
+    return generateReviewFocusReasons({
+      currentFocusGoalId: state.focusGoal?.id ?? null,
+      candidates,
+      locale,
+    });
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!focusCandidates.length || !aiEnabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      const nextReasons = await refreshFocusReasons(focusCandidates);
+      if (!cancelled) {
+        setFocusReasons(nextReasons);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aiEnabled, focusCandidates, locale, state.focusGoal?.id]);
 
   if (!reviewGoal) {
     return (
@@ -222,28 +257,37 @@ export function ReviewPageClient() {
               <h2>{copy.review.focusCandidatesLead}</h2>
             </div>
           </div>
-          <div className="stack-lg">
-            {focusCandidates.map((goal: Goal) => (
-              <div className="portfolio-card" key={goal.id}>
-                <div className="portfolio-card__header">
-                  <div>
-                    <div className="pill-row">
-                      <StatusPill label={goal.status} />
-                      {goal.id === state.focusGoal?.id ? <StatusPill label="active" /> : null}
+          {focusCandidates.length ? (
+            <div className="stack-lg">
+              {focusCandidates.map((candidate) => {
+                const goal = goalMap.get(candidate.goalId) as Goal;
+                const reason = focusReasonMap.get(candidate.goalId) ?? heuristicReasons.find((item) => item.goalId === candidate.goalId);
+                return (
+                  <div className="portfolio-card" key={candidate.goalId}>
+                    <div className="portfolio-card__header">
+                      <div>
+                        <div className="pill-row">
+                          <StatusPill label={goal.status} />
+                          {goal.id === state.focusGoal?.id ? <StatusPill label="active" /> : null}
+                          {reason ? <StatusPill label={reason.mode} /> : null}
+                        </div>
+                        <h3>{goal.title}</h3>
+                        <p className="muted">{goal.description || goal.currentState || copy.common.noSummary}</p>
+                        <p className="muted">{reason?.reason || copy.review.candidateReason}</p>
+                      </div>
+                      {goal.id !== state.focusGoal?.id ? (
+                        <button className="button button--ghost" disabled={isPending} onClick={() => handleSetCandidate(goal.id)} type="button">
+                          {copy.review.buttons.setFocus}
+                        </button>
+                      ) : null}
                     </div>
-                    <h3>{goal.title}</h3>
-                    <p className="muted">{goal.description || goal.currentState || copy.common.noSummary}</p>
-                    <p className="muted">{copy.review.candidateReason}</p>
                   </div>
-                  {goal.id !== state.focusGoal?.id ? (
-                    <button className="button button--ghost" disabled={isPending} onClick={() => handleSetCandidate(goal.id)} type="button">
-                      {copy.review.buttons.setFocus}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="muted">{copy.review.savedReviewsEmpty}</p>
+          )}
         </SectionCard>
 
         <SectionCard>

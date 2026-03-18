@@ -360,6 +360,25 @@ export interface BlockerReroute {
   mode: "ai" | "heuristic";
 }
 
+export interface ReviewFocusCandidateInput {
+  goalId: string;
+  title: string;
+  description: string;
+  currentState: string;
+  status: GoalStatus;
+  isInResumeQueue: boolean;
+  isOverdue: boolean;
+  openBlockerCount: number;
+  activeQuestCount: number;
+  updatedAt: string;
+}
+
+export interface ReviewFocusCandidateReason {
+  goalId: string;
+  reason: string;
+  mode: "ai" | "heuristic";
+}
+
 export interface DashboardStats {
   activeQuestCount: number;
   completedThisWeek: number;
@@ -562,6 +581,7 @@ export interface IntakeRefineInput {
   constraints: string[];
   concerns: string;
   todayCapacity: string;
+  locale?: UiLocale;
 }
 
 export interface GenerateMapInput {
@@ -574,6 +594,7 @@ export interface GenerateMapInput {
   currentState: string;
   constraints: string[];
   concerns: string;
+  locale?: UiLocale;
 }
 
 export interface PlanTodayInput {
@@ -582,6 +603,7 @@ export interface PlanTodayInput {
   questSnapshots?: Quest[];
   blockerSnapshots?: Blocker[];
   latestReviewSnapshot?: Review | null;
+  locale?: UiLocale;
 }
 
 export interface RerouteInput {
@@ -591,6 +613,13 @@ export interface RerouteInput {
   blockerType: BlockerType;
   relatedQuestId?: string | null;
   goalSnapshot?: Goal;
+  locale?: UiLocale;
+}
+
+export interface ReviewFocusReasonsInput {
+  currentFocusGoalId?: string | null;
+  candidates: ReviewFocusCandidateInput[];
+  locale?: UiLocale;
 }
 
 export interface RouteOption {
