@@ -135,7 +135,7 @@ export function MapPageClient() {
         <div>
           <p className="eyebrow">{copy.page}</p>
           <h1>{copy.heroTitle}</h1>
-          <p className="lead">{copy.lead}</p>
+          {copy.lead ? <p className="lead">{copy.lead}</p> : null}
         </div>
         <div className="hero-panel__actions">
           <button className="button button--secondary" onClick={handleGenerate} disabled={isPending} type="button">

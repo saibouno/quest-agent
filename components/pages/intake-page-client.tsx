@@ -138,7 +138,7 @@ export function IntakePageClient() {
         <div>
           <p className="eyebrow">{copy.page}</p>
           <h1>{isNewMode ? copy.titleNew : copy.titleEdit}</h1>
-          <p className="lead">{copy.lead}</p>
+          {copy.lead ? <p className="lead">{copy.lead}</p> : null}
         </div>
         <div className="hero-panel__actions">
           <button className="button button--secondary" onClick={handleRefine} disabled={isPending || !form.title.trim()} type="button">
