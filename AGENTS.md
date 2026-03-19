@@ -19,3 +19,12 @@ Start here when you need to understand or change the product.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only.
 - Vercel Preview without Supabase uses browser `localStorage`, not server file writes.
 - On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
+
+## Git Workflow
+- Default branch is `main`.
+- Keep `origin/preview/demo` and `origin/release` as operational branches. Do not delete them as part of normal cleanup.
+- For normal changes, work on a `codex/*` branch, verify the needed checks, then `commit` and `push`.
+- Create GitHub PRs in Japanese by default.
+- Merge PRs into `main` with `Create a merge commit` unless there is a clear reason not to.
+- After merge, delete the remote feature branch and delete the local feature branch.
+- After merge, switch back to `main`, `fetch --prune`, and fast-forward local `main` to `origin/main`.
