@@ -53,19 +53,34 @@ Before promoting into `preview/dogfood`, confirm at least:
 - `return`
 - `review`
 
-## Chat and worktree workflow
-Use one long-lived "mothership" chat to keep product intent, slice boundaries, and merge order aligned.
-Use short-lived implementation chats only for bounded deliverables.
+## Theme workflow
+Use one long-lived "mothership" chat to keep product intent, theme boundaries, and merge order aligned.
+Use short-lived implementation chats only for bounded themes.
+
+### Theme contract
+Every theme should begin with:
+- theme name
+- branch and worktree path
+- scope
+- out of scope
+- done condition
+- expected end state
+- owned files and locked files
+
+Expected end state must be one of:
+- `merge_and_delete`
+- `remote_only_reference`
+- `discard`
 
 ### Mothership chat responsibilities
-- define the next slice before a new worktree or chat is created
-- assign a single deliverable to each worktree and chat
+- define the next theme before a new worktree or chat is created
+- assign a single theme to each worktree and chat
 - decide which changes may run in parallel and which must be serialized
 - publish the handoff summary: goal, non-goals, done criteria, and owned files
 - decide merge order and tell still-open chats when `main` has changed underneath them
 
 ### Implementation chat responsibilities
-- stay inside the assigned deliverable and file ownership
+- stay inside the assigned theme and file ownership
 - avoid expanding scope without bringing the decision back to the mothership chat
 - keep branches short-lived: commit, push, summarize, archive
 - re-read `main` assumptions after any upstream merge that touches shared behavior
@@ -85,12 +100,14 @@ Shared-core changes should land in this order:
 
 ### Handoff minimum
 Every implementation chat should begin with a small handoff that fixes:
+- theme name
 - base branch
 - worktree path
 - branch name
 - goal
 - non-goals
 - done criteria
+- expected end state
 - owned files or locked files
 
 ## Guardrails

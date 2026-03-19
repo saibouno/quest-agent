@@ -20,14 +20,17 @@ Start here when you need to understand or change the product.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only.
 - Vercel Preview without Supabase uses browser `localStorage`, not server file writes.
 - `preview/dogfood` must stay `server-backed` and pinned to its intended Supabase URL.
-- Use one mothership chat to assign slices, handoffs, and merge order.
+- Use one mothership chat to assign themes, handoffs, and merge order.
+- Default unit of work is `1 theme = 1 chat = 1 worktree`.
+- Start each theme with: scope, out of scope, done condition, and expected end state (`merge_and_delete`, `remote_only_reference`, or `discard`).
 - Treat `lib/quest-agent/types.ts`, `lib/quest-agent/transitions.ts`, `lib/quest-agent/server/store.ts`, `components/layout/app-shell.tsx`, and `app/page.tsx` as shared-core files that should not be edited in parallel.
 - On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
 
 ## Git Workflow
 - Default branch is `main`.
 - Keep `origin/preview/demo`, `origin/preview/dogfood`, and `origin/release` as operational branches. Do not delete them as part of normal cleanup.
-- For normal changes, work on a `codex/*` branch, verify the needed checks, then `commit` and `push`.
+- For normal changes, work on a `codex/*` branch + worktree, verify the needed checks, then `commit` and `push`.
+- Direct commits to `main` require explicit human approval.
 - Create GitHub PRs in Japanese by default.
 - Merge PRs into `main` with `Create a merge commit` unless there is a clear reason not to.
 - After merge, delete the remote feature branch and delete the local feature branch.
