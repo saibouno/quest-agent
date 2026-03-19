@@ -24,6 +24,7 @@ Start here when you need to understand or change the product.
 - Default unit of work is `1 theme = 1 chat = 1 worktree`.
 - Start each theme with: scope, out of scope, done condition, and expected end state (`merge_and_delete`, `remote_only_reference`, or `discard`).
 - Treat `lib/quest-agent/types.ts`, `lib/quest-agent/transitions.ts`, `lib/quest-agent/server/store.ts`, `components/layout/app-shell.tsx`, and `app/page.tsx` as shared-core files that should not be edited in parallel.
+- Auto-merge is allowed only for low-risk themes that do not touch shared-core, storage, deploy, schema, or approval boundaries.
 - On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
 
 ## Git Workflow
@@ -33,5 +34,6 @@ Start here when you need to understand or change the product.
 - Direct commits to `main` require explicit human approval.
 - Create GitHub PRs in Japanese by default.
 - Merge PRs into `main` with `Create a merge commit` unless there is a clear reason not to.
+- Themes that are docs-only, copy-only, or isolated polish may be merged automatically after checks pass when they do not touch protected areas.
 - After merge, delete the remote feature branch and delete the local feature branch.
 - After merge, switch back to `main`, `fetch --prune`, and fast-forward local `main` to `origin/main`.

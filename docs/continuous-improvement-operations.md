@@ -53,6 +53,36 @@ Before promoting into `preview/dogfood`, confirm at least:
 - `return`
 - `review`
 
+## Auto-merge policy
+Auto-merge is for low-risk themes only.
+Use it to remove GitHub handling overhead, not to skip review on risky changes.
+
+### Auto-merge eligible
+- docs-only changes
+- Japanese or English copy-only changes
+- isolated polish on non-shared-core pages or components
+- PRs that are `mergeable` and have the required checks green
+
+### Auto-merge blocked
+- changes to shared-core files
+- storage, Supabase, preview runtime, or deploy behavior changes
+- schema or migration changes
+- root route, shell, or global navigation changes unless a human explicitly approves
+- destructive or irreversible behavior changes
+- anything that crosses an approval boundary
+
+### Auto-merge behavior
+- keep the standard merge mode: `Create a merge commit`
+- delete the remote branch after merge unless the theme is `remote_only_reference`
+- do not auto-merge if `preview/dogfood` promotion rules would still require manual confirmation
+
+### Protected areas in Quest Agent
+- `lib/quest-agent/types.ts`
+- `lib/quest-agent/transitions.ts`
+- `lib/quest-agent/server/store.ts`
+- `components/layout/app-shell.tsx`
+- `app/page.tsx`
+
 ## Theme workflow
 Use one long-lived "mothership" chat to keep product intent, theme boundaries, and merge order aligned.
 Use short-lived implementation chats only for bounded themes.
