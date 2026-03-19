@@ -1,6 +1,7 @@
-﻿.next
+.next
 node_modules
 .npm-cache
+.codex-context/
 .env
 .env.local
 .env.development.local
@@ -12,3 +13,4 @@ data/*.json
 
 tsconfig.tsbuildinfo
 chatgpt-tread.md2.md
+docs/research/reports/
