@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import {
   buildHeuristicBlockerReroute,
@@ -6,6 +6,7 @@ import {
   buildHeuristicMapDraft,
   buildHeuristicTodayPlan,
 } from "@/lib/quest-agent/derive";
+import { buildWorkflowInstructions } from "@/lib/quest-agent/server/orchestration";
 import type {
   Blocker,
   BlockerReroute,
@@ -172,9 +173,10 @@ export async function generateIntakeRefinement(input: {
 }): Promise<IntakeRefinement> {
   const fallback = buildHeuristicIntakeRefinement({ ...input, deadline: input.deadline ?? null });
   const prompt = JSON.stringify(input, null, 2);
+  const instructions = await buildWorkflowInstructions("intake-refine");
   const result = await callStructuredOutput<Omit<IntakeRefinement, "mode">>(
     "quest_agent_intake_refinement",
-    "You are Quest Agent. Turn an ambiguous goal into a more executable goal draft for a user who is serious but prone to getting stuck in execution design. Keep it concrete, compact, and action-oriented.",
+    instructions,
     prompt,
     refinementSchema,
   );
@@ -185,9 +187,10 @@ export async function generateIntakeRefinement(input: {
 export async function generateQuestMap(goal: Goal): Promise<MapDraft> {
   const fallback = buildHeuristicMapDraft(goal);
   const prompt = JSON.stringify(goal, null, 2);
+  const instructions = await buildWorkflowInstructions("generate-map");
   const result = await callStructuredOutput<Omit<MapDraft, "mode">>(
     "quest_agent_map",
-    "You are Quest Agent. Convert the goal into 3 to 5 milestones with nested quests. Prefer an order that maximizes clarity, momentum, and recoverability when the user gets stuck.",
+    instructions,
     prompt,
     mapDraftSchema,
   );
@@ -198,9 +201,10 @@ export async function generateQuestMap(goal: Goal): Promise<MapDraft> {
 export async function generateTodayPlan(goal: Goal, quests: Quest[], blockers: Blocker[], latestReview?: Review): Promise<TodayPlan> {
   const fallback = buildHeuristicTodayPlan(goal, quests, blockers, latestReview);
   const prompt = JSON.stringify({ goal, quests, blockers, latestReview }, null, 2);
+  const instructions = await buildWorkflowInstructions("plan-today");
   const result = await callStructuredOutput<Omit<TodayPlan, "mode">>(
     "quest_agent_today_plan",
-    "You are Quest Agent. Select 1 to 3 quests for today that maximize the user's chance of real forward motion. Favor restartability, low friction, and evidence-producing work over abstract planning.",
+    instructions,
     prompt,
     todayPlanSchema,
   );
@@ -211,15 +215,13 @@ export async function generateTodayPlan(goal: Goal, quests: Quest[], blockers: B
 export async function generateBlockerReroute(goal: Goal, blocker: { title: string; description: string; blockerType: string }): Promise<BlockerReroute> {
   const fallback = buildHeuristicBlockerReroute(goal, blocker);
   const prompt = JSON.stringify({ goal, blocker }, null, 2);
+  const instructions = await buildWorkflowInstructions("reroute-from-blocker");
   const result = await callStructuredOutput<Omit<BlockerReroute, "mode">>(
     "quest_agent_blocker_reroute",
-    "You are Quest Agent. Diagnose the blocker and produce a concrete next step, an alternate route, and a reframing that reduces self-blame and improves restartability.",
+    instructions,
     prompt,
     blockerSchema,
   );
 
   return result ? { ...result, mode: "ai" } : fallback;
 }
-
-
-

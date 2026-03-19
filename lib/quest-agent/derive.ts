@@ -1,4 +1,4 @@
-﻿import {
+import {
   type AppState,
   type Blocker,
   type BlockerReroute,
@@ -11,6 +11,7 @@
   type Review,
   type TodayPlan,
   type TodayQuestSuggestion,
+  type UserProfile,
 } from "@/lib/quest-agent/types";
 
 export function nowIso(): string {
@@ -19,6 +20,18 @@ export function nowIso(): string {
 
 export function makeId(): string {
   return crypto.randomUUID();
+}
+
+export function defaultUserProfile(): UserProfile {
+  return {
+    prefersSmallSteps: true,
+    getsStuckOnAmbiguity: true,
+    tendsToOverresearch: true,
+    bestWorkBlockMinutes: 25,
+    worksBestTime: "morning",
+    needsOptionComparison: true,
+    restartsBetterWithTinyActions: true,
+  };
 }
 
 export function emptyPersistedState(): PersistedState {
@@ -31,6 +44,7 @@ export function emptyPersistedState(): PersistedState {
     decisions: [],
     artifacts: [],
     events: [],
+    userProfile: defaultUserProfile(),
   };
 }
 
@@ -51,7 +65,9 @@ export function pickCurrentGoal(goals: Goal[]): Goal | null {
 }
 
 export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[]): TodayQuestSuggestion[] {
-  const blockedQuestIds = new Set(blockers.filter((blocker) => blocker.status === "open" && blocker.relatedQuestId).map((blocker) => blocker.relatedQuestId));
+  const blockedQuestIds = new Set(
+    blockers.filter((blocker) => blocker.status === "open" && blocker.relatedQuestId).map((blocker) => blocker.relatedQuestId),
+  );
   const priorityScore = new Map([
     ["high", 0],
     ["medium", 1],
@@ -76,21 +92,19 @@ export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[]): Tod
       if (priorityDelta !== 0) {
         return priorityDelta;
       }
-      const minutesLeft = left.estimatedMinutes ?? 45;
-      const minutesRight = right.estimatedMinutes ?? 45;
-      return minutesLeft - minutesRight;
+      return (left.estimatedMinutes ?? 45) - (right.estimatedMinutes ?? 45);
     })
     .slice(0, 3)
     .map((quest) => ({
       questId: quest.id,
       title: quest.title,
       reason: blockedQuestIds.has(quest.id)
-        ? "詰まりをほどく補助が必要です。先に blocker を言語化して進み方を軽くします。"
+        ? "This quest is linked to an active blocker, so unblock wording comes first."
         : quest.status === "in_progress"
-          ? "途中で止まっているので、再始動の摩擦が一番低い quest です。"
-          : "今日の前進に直結しやすい quest として選びました。",
+          ? "This is already in motion, so it is the easiest place to restart."
+          : "This is the clearest next step with the lowest friction today.",
       focusMinutes: quest.estimatedMinutes ?? 45,
-      successHint: quest.description || "終わりが見えるサイズに切って着手します。",
+      successHint: quest.description || "Shrink the work until the finish line is visible.",
       status: quest.status,
     }));
 }
@@ -112,24 +126,19 @@ export function enrichState(state: PersistedState): AppState {
     ? state.milestones.filter((milestone) => milestone.goalId === currentGoal.id).sort((left, right) => left.sequence - right.sequence)
     : [];
   const currentQuests = currentGoal
-    ? state.quests
-        .filter((quest) => quest.goalId === currentGoal.id)
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    ? state.quests.filter((quest) => quest.goalId === currentGoal.id).sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     : [];
   const currentBlockers = currentGoal
-    ? state.blockers
-        .filter((blocker) => blocker.goalId === currentGoal.id)
-        .sort((left, right) => right.detectedAt.localeCompare(left.detectedAt))
+    ? state.blockers.filter((blocker) => blocker.goalId === currentGoal.id).sort((left, right) => right.detectedAt.localeCompare(left.detectedAt))
     : [];
   const currentReviews = currentGoal
-    ? state.reviews
-        .filter((review) => review.goalId === currentGoal.id)
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    ? state.reviews.filter((review) => review.goalId === currentGoal.id).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     : [];
   const stats = buildDashboardStats(currentQuests, currentBlockers, state.events);
 
   return {
     ...state,
+    userProfile: state.userProfile ?? defaultUserProfile(),
     currentGoal,
     currentMilestones,
     currentQuests,
@@ -157,98 +166,102 @@ export function buildHeuristicIntakeRefinement(input: {
   const successCriteria = input.successCriteria.length
     ? input.successCriteria
     : [
-        "完成の定義を1文で言える",
-        "他人に見せられる状態まで持っていく",
-        "次の判断に必要な証拠が残る",
+        "You can explain what done looks like in one sentence.",
+        "You can show a concrete artifact or output.",
+        "You leave evidence that helps the next decision.",
       ];
-  const constraintsToWatch = input.constraints.length ? input.constraints : ["使える時間", "意思決定待ち", "不明点の放置"];
+
+  const constraintsToWatch = input.constraints.length
+    ? input.constraints
+    : ["Available time", "Decision waiting", "Unclear next step"];
+
   return {
     goalTitle: input.title,
     goalSummary:
       input.description ||
-      `${input.title} を、${input.deadline ? `${input.deadline} までに` : "現実的な期限で"}前に進める。Why は「${input.why || "前に進めたい理由を言語化する"}」です。`,
+      `${input.title} needs to move from an ambitious idea into an executable route${input.deadline ? ` by ${input.deadline}` : ""}.`,
     successCriteria,
     constraintsToWatch,
     openQuestions: [
-      input.currentState ? `現在地の要点: ${input.currentState}` : "いま何が既にできているかを短く定義する",
-      input.concerns ? `一番気になる不安: ${input.concerns}` : "止まりやすい箇所を1つ選ぶ",
-      "今週中に見せられる最小成果物は何かを決める",
+      input.currentState ? `Current state: ${input.currentState}` : "What is already true right now?",
+      input.concerns ? `Main concern: ${input.concerns}` : "Where are you most likely to stall?",
+      "What is the smallest thing you could show this week?",
     ],
-    firstRouteNote: "最初は完璧な計画より、3段階の route と最初の 1 手を決めることを優先します。",
+    firstRouteNote: "Start with a route you can actually begin, not the perfect plan.",
     mode: "heuristic",
   };
 }
 
 export function buildHeuristicMapDraft(goal: Goal): MapDraft {
-  const deadlineLabel = goal.deadline ?? "未設定";
+  const deadlineLabel = goal.deadline ?? "the current working window";
   return {
-    routeSummary: `Goal を 3 段階に分け、${deadlineLabel} に向けて「方向を固める -> 形にする -> 仕上げる」の流れで進めます。`,
+    routeSummary: `Move ${goal.title} through three stages before ${deadlineLabel}: clarify the route, build the core, then polish and share.`,
     milestones: [
       {
         tempId: makeId(),
-        title: "Route を固める",
-        description: "勝ち条件、現在地、優先順位を整理して迷いを減らす段階。",
+        title: "Clarify the route",
+        description: "Reduce ambiguity around the goal, the constraints, and the finish line.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "勝ち条件を3つに絞る",
-            description: "この goal が前進したと言える条件を明文化する。",
+            title: "Lock the win conditions",
+            description: "Turn success criteria into a short checklist.",
             priority: "high",
             dueDate: goal.deadline,
             estimatedMinutes: 30,
             questType: "main",
           },
           {
-            title: "今の現在地を1画面にまとめる",
-            description: goal.currentState || "いま持っている材料、足りない情報、未決定事項を整理する。",
+            title: "Write the current-state snapshot",
+            description: goal.currentState || "Summarize what is already done and what is still fuzzy.",
             priority: "high",
             dueDate: goal.deadline,
-            estimatedMinutes: 40,
+            estimatedMinutes: 30,
             questType: "main",
           },
         ],
       },
       {
         tempId: makeId(),
-        title: "Core を作る",
-        description: "一番価値が出る中心部分を先に形にする段階。",
+        title: "Build the core",
+        description: "Create the smallest version that proves the route is viable.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: `${goal.title} の中心成果を作る`,
-            description: goal.description || "ユーザーに見せられる最小成果物を作る。",
+            title: `Build the core of ${goal.title}`,
+            description: goal.description || "Make the smallest artifact you can show to someone else.",
             priority: "high",
             dueDate: goal.deadline,
-            estimatedMinutes: 90,
+            estimatedMinutes: 60,
             questType: "main",
           },
           {
-            title: "Blocker 候補を先に潰す",
-            description: goal.concerns || "今詰まりそうな点を1つ潰す。",
+            title: "Name likely blockers early",
+            description: goal.concerns || "Write down the blockers that would stop momentum.",
             priority: "medium",
             dueDate: goal.deadline,
-            estimatedMinutes: 45,
+            estimatedMinutes: 25,
             questType: "side",
           },
         ],
       },
       {
         tempId: makeId(),
-        title: "仕上げて見せる",
-        description: "振り返りと仕上げを入れて、他人に見せられる形にする段階。",
+        title: "Polish and reroute",
+        description: "Review progress, tighten the route, and prepare the next stretch.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "見せる相手を決めて共有する",
-            description: "成果物を誰に見せるかを決め、実際に共有する。",
+            title: "Share a progress artifact",
+            description: "Pick one person or one place where the current progress can be shown.",
             priority: "medium",
             dueDate: goal.deadline,
             estimatedMinutes: 30,
             questType: "main",
           },
           {
-            title: "週次 review を書いて route を直す",
-            description: "うまくいったこと、止まった理由、次の重点を整理する。",
+            title: "Write a weekly review",
+            description: "Capture what worked, what stalled, and what should change next.",
             priority: "medium",
             dueDate: goal.deadline,
             estimatedMinutes: 30,
@@ -264,26 +277,27 @@ export function buildHeuristicMapDraft(goal: Goal): MapDraft {
 export function buildHeuristicTodayPlan(goal: Goal, quests: Quest[], blockers: Blocker[], review: Review | undefined): TodayPlan {
   const questSuggestions = buildTodaySuggestions(quests, blockers);
   const notes = [
-    goal.todayCapacity ? `今日使える余力: ${goal.todayCapacity}` : "最初の 25 分で動き出せる quest から始めます。",
+    goal.todayCapacity ? `Today's capacity: ${goal.todayCapacity}` : "Bias toward a 25-minute block if energy is unclear.",
     blockers.some((blocker) => blocker.status === "open")
-      ? "open blocker があるので、詰まりをほどく一手を今日の route に含めます。"
-      : "大きな blocker は見えていないので、着手しやすい順で進めます。",
+      ? "There is at least one open blocker, so include one unblock step in today's route."
+      : "No major blocker is visible, so favor the clearest direct step.",
   ];
+
   if (review?.rerouteNote) {
-    notes.push(`前回の reroute: ${review.rerouteNote}`);
+    notes.push(`Last reroute note: ${review.rerouteNote}`);
   }
 
   return {
-    theme: "今日は momentum を落とさず、最小の前進を 1 つ確実に作る日です。",
+    theme: "Today is about protecting momentum with one concrete forward move.",
     quests: questSuggestions.length
       ? questSuggestions
       : [
           {
             questId: null,
-            title: "Quest Map を作る",
-            reason: "まだ quest が定義されていないため、先に route を作るのが最短です。",
+            title: "Create the Quest Map",
+            reason: "There is no saved route yet, so the next best move is to define one.",
             focusMinutes: 30,
-            successHint: "milestone を 3 つまでに絞って保存します。",
+            successHint: "Keep it to three milestones and save the draft.",
             status: "suggested",
           },
         ],
@@ -297,10 +311,10 @@ export function buildHeuristicBlockerReroute(goal: Goal, blocker: { title: strin
     blockerLabel: blocker.title,
     diagnosis:
       blocker.description ||
-      `${goal.title} に対して、次の一手が不明なまま止まっています。大きい判断を一度に片付けようとしている可能性があります。`,
-    nextStep: "まずは 25 分以内に終わる確認・整理・問い合わせのどれか 1 つに分解します。",
-    alternateRoute: "本命が重い場合は、証拠を増やす軽い side quest に切り替えて momentum を維持します。",
-    reframing: "止まったのは根性不足ではなく、route の粒度が大きすぎるサインとして扱います。",
+      `${goal.title} is currently stalled because the next concrete step is still too fuzzy or too large.`,
+    nextStep: "Shrink the problem to one action that can finish in 10 to 25 minutes.",
+    alternateRoute: "If the direct route still feels heavy, switch to a smaller evidence-producing side quest.",
+    reframing: "This is not a motivation failure. It is a sign that the route needs a smaller step size.",
     mode: "heuristic",
   };
 }

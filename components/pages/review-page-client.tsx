@@ -1,13 +1,13 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { StatusPill } from "@/components/shared/status-pill";
-import type { AppState } from "@/lib/quest-agent/types";
 
 function todayOffset(days: number) {
   const date = new Date();
@@ -15,8 +15,9 @@ function todayOffset(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-export function ReviewPageClient({ state }: { state: AppState }) {
+export function ReviewPageClient() {
   const router = useRouter();
+  const { state, clientStorageMode, createReview } = useQuestAgent();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -31,10 +32,10 @@ export function ReviewPageClient({ state }: { state: AppState }) {
 
   const stats = useMemo(
     () => [
-      { label: "Reviews", value: state.currentReviews.length, detail: "保存済みの weekly review" },
-      { label: "Recent Events", value: state.recentEvents.length, detail: "route の履歴" },
-      { label: "Completed This Week", value: state.stats.completedThisWeek, detail: "前進の記録" },
-      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "再設計が必要な箇所" },
+      { label: "Reviews", value: state.currentReviews.length, detail: "Saved weekly reviews" },
+      { label: "Recent Events", value: state.recentEvents.length, detail: "Recent route history" },
+      { label: "Completed This Week", value: state.stats.completedThisWeek, detail: "Visible progress" },
+      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "Places that may need reroute" },
     ],
     [state],
   );
@@ -43,9 +44,9 @@ export function ReviewPageClient({ state }: { state: AppState }) {
     return (
       <SectionCard>
         <p className="eyebrow">Weekly Review</p>
-        <h1>review の前に goal が必要です。</h1>
+        <h1>You need a goal before you can review the route.</h1>
         <Link className="button" href="/intake">
-          Quest Intake へ
+          Go to Quest Intake
         </Link>
       </SectionCard>
     );
@@ -59,27 +60,24 @@ export function ReviewPageClient({ state }: { state: AppState }) {
     setError("");
     setMessage("");
     startTransition(async () => {
-      const response = await fetch("/api/reviews", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goalId: state.currentGoal?.id,
+      try {
+        await createReview({
+          goalId: state.currentGoal!.id,
           periodStart: form.periodStart,
           periodEnd: form.periodEnd,
           summary: form.summary,
           learnings: form.learnings,
           rerouteNote: form.rerouteNote,
           nextFocus: form.nextFocus,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Review save failed.");
-        return;
+        });
+        setMessage("Weekly review saved. The route can now reroute from evidence, not self-blame.");
+        setForm({ periodStart: todayOffset(-6), periodEnd: todayOffset(0), summary: "", learnings: "", rerouteNote: "", nextFocus: "" });
+        if (clientStorageMode === "server-backed") {
+          router.refresh();
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Review save failed.");
       }
-      setMessage("Weekly review を保存しました。route_changed event も記録されます。");
-      setForm({ periodStart: todayOffset(-6), periodEnd: todayOffset(0), summary: "", learnings: "", rerouteNote: "", nextFocus: "" });
-      router.refresh();
     });
   }
 
@@ -88,8 +86,8 @@ export function ReviewPageClient({ state }: { state: AppState }) {
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">Weekly Review</p>
-          <h1>うまくいかなかったら、根性ではなく設計を直す。</h1>
-          <p className="lead">review は反省会ではなく reroute のための作業です。止まった理由を次の route 改善に変えます。</p>
+          <h1>When the route stalls, fix the design instead of blaming motivation.</h1>
+          <p className="lead">Review is where Quest Agent turns friction into the next cleaner route.</p>
         </div>
       </section>
 
@@ -126,17 +124,17 @@ export function ReviewPageClient({ state }: { state: AppState }) {
             </label>
             <label className="field field--full">
               <span>Reroute Note</span>
-              <textarea className="textarea" rows={3} value={form.rerouteNote} onChange={(event) => updateField("rerouteNote", event.target.value)} placeholder="何を変えるか" />
+              <textarea className="textarea" rows={3} value={form.rerouteNote} onChange={(event) => updateField("rerouteNote", event.target.value)} placeholder="What should change next?" />
             </label>
             <label className="field field--full">
               <span>Next Focus</span>
-              <textarea className="textarea" rows={3} value={form.nextFocus} onChange={(event) => updateField("nextFocus", event.target.value)} placeholder="来週何に集中するか" />
+              <textarea className="textarea" rows={3} value={form.nextFocus} onChange={(event) => updateField("nextFocus", event.target.value)} placeholder="What matters most next week?" />
             </label>
           </div>
 
           <div className="button-row">
             <button className="button" disabled={isPending || !form.summary.trim()} onClick={handleSave} type="button">
-              Weekly Review を保存
+              Save Weekly Review
             </button>
           </div>
         </SectionCard>
@@ -145,7 +143,7 @@ export function ReviewPageClient({ state }: { state: AppState }) {
           <div className="section-header">
             <div>
               <p className="eyebrow">Saved Reviews</p>
-              <h2>履歴</h2>
+              <h2>History</h2>
             </div>
           </div>
 
@@ -155,7 +153,9 @@ export function ReviewPageClient({ state }: { state: AppState }) {
                 <div className="milestone-card" key={review.id}>
                   <div className="milestone-card__header">
                     <div>
-                      <p className="eyebrow">{review.periodStart} - {review.periodEnd}</p>
+                      <p className="eyebrow">
+                        {review.periodStart} - {review.periodEnd}
+                      </p>
                       <h3>{review.summary}</h3>
                     </div>
                     <StatusPill label="completed" />
@@ -167,7 +167,7 @@ export function ReviewPageClient({ state }: { state: AppState }) {
               ))}
             </div>
           ) : (
-            <p className="muted">まだ review はありません。最初の1本が、その後の reroute 品質を上げます。</p>
+            <p className="muted">No review yet. The first review makes the next reroute much easier.</p>
           )}
         </SectionCard>
       </div>
@@ -176,7 +176,7 @@ export function ReviewPageClient({ state }: { state: AppState }) {
         <div className="section-header">
           <div>
             <p className="eyebrow">Recent Events</p>
-            <h2>進み方のログ</h2>
+            <h2>Route log</h2>
           </div>
         </div>
         <div className="event-list">

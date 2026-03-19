@@ -1,11 +1,12 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatStrip } from "@/components/shared/stat-strip";
-import type { AppState, IntakeRefinement } from "@/lib/quest-agent/types";
+import type { IntakeRefinement } from "@/lib/quest-agent/types";
 
 function linesToString(values: string[]) {
   return values.join("\n");
@@ -18,11 +19,12 @@ function stringToLines(value: string) {
     .filter(Boolean);
 }
 
-export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnabled: boolean }) {
+export function IntakePageClient() {
   const router = useRouter();
+  const { state, aiEnabled, clientStorageMode, refineIntake, saveGoal } = useQuestAgent();
   const [isPending, startTransition] = useTransition();
-  const [message, setMessage] = useState<string>("");
-  const [error, setError] = useState<string>("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [refinement, setRefinement] = useState<IntakeRefinement | null>(null);
   const [form, setForm] = useState({
     id: state.currentGoal?.id ?? "",
@@ -39,10 +41,10 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
 
   const stats = useMemo(
     () => [
-      { label: "Current Goal", value: state.currentGoal ? 1 : 0, detail: state.currentGoal ? "active route exists" : "no active route yet" },
-      { label: "Milestones", value: state.currentMilestones.length, detail: "goal を支える段階数" },
-      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "詰まりを見える化" },
-      { label: "Momentum", value: state.stats.completedThisWeek, detail: "過去7日で完了した quest" },
+      { label: "Current Goal", value: state.currentGoal ? 1 : 0, detail: state.currentGoal ? "A route exists" : "No active route yet" },
+      { label: "Milestones", value: state.currentMilestones.length, detail: "The stages supporting this goal" },
+      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "Visible reasons you may stall" },
+      { label: "Momentum", value: state.stats.completedThisWeek, detail: "Completed quests in the last 7 days" },
     ],
     [state],
   );
@@ -55,10 +57,8 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
     setError("");
     setMessage("");
     startTransition(async () => {
-      const response = await fetch("/api/ai/intake-refine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      try {
+        const nextRefinement = await refineIntake({
           title: form.title,
           description: form.description,
           why: form.why,
@@ -68,23 +68,19 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
           constraints: stringToLines(form.constraints),
           concerns: form.concerns,
           todayCapacity: form.todayCapacity,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Intake refinement failed.");
-        return;
+        });
+        setRefinement(nextRefinement);
+        setForm((current) => ({
+          ...current,
+          title: nextRefinement.goalTitle,
+          description: nextRefinement.goalSummary,
+          successCriteria: linesToString(nextRefinement.successCriteria),
+          constraints: linesToString(nextRefinement.constraintsToWatch),
+        }));
+        setMessage(nextRefinement.mode === "ai" ? "AI drafted a sharper goal." : "Heuristic mode drafted a sharper goal.");
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Intake refinement failed.");
       }
-      const nextRefinement = payload.data as IntakeRefinement;
-      setRefinement(nextRefinement);
-      setForm((current) => ({
-        ...current,
-        title: nextRefinement.goalTitle,
-        description: nextRefinement.goalSummary,
-        successCriteria: linesToString(nextRefinement.successCriteria),
-        constraints: linesToString(nextRefinement.constraintsToWatch),
-      }));
-      setMessage(nextRefinement.mode === "ai" ? "AI が goal draft を整えました。" : "Heuristic mode で goal draft を整えました。");
     });
   }
 
@@ -92,10 +88,8 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
     setError("");
     setMessage("");
     startTransition(async () => {
-      const response = await fetch("/api/goals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      try {
+        await saveGoal({
           id: form.id || undefined,
           title: form.title,
           description: form.description,
@@ -108,16 +102,15 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
           todayCapacity: form.todayCapacity,
           status: "active",
           refined: Boolean(refinement),
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Goal save failed.");
-        return;
+        });
+        setMessage("Goal saved. Next, turn it into a route on Quest Map.");
+        if (clientStorageMode === "server-backed") {
+          router.refresh();
+        }
+        router.push("/map");
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Goal save failed.");
       }
-      setMessage("Goal を保存しました。次は Quest Map で route を作ります。");
-      router.refresh();
-      router.push("/map");
     });
   }
 
@@ -126,23 +119,22 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">Quest Intake</p>
-          <h1>目標を、進められる形に整える。</h1>
+          <h1>Shape the goal into something you can actually move.</h1>
           <p className="lead">
-            ここでは目標の気合いではなく、達成条件、現在地、制約、今日の余力を整理します。Quest Agent が route の叩き台を引き受けます。
+            You do not need a perfect plan here. Just explain the goal, the why, the constraints, the current state, and how much energy you have today.
           </p>
         </div>
         <div className="hero-panel__actions">
           <button className="button" onClick={handleRefine} disabled={isPending || !form.title.trim()} type="button">
-            {aiEnabled ? "AI で整える" : "Heuristic で整える"}
+            {aiEnabled ? "Refine with AI" : "Refine with heuristics"}
           </button>
           <button className="button button--secondary" onClick={handleSave} disabled={isPending || !form.title.trim()} type="button">
-            Goal を保存
+            Save Goal
           </button>
         </div>
       </section>
 
       <StatStrip items={stats} />
-
       {message ? <p className="feedback feedback--ok">{message}</p> : null}
       {error ? <p className="feedback feedback--error">{error}</p> : null}
 
@@ -151,7 +143,7 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
           <div className="section-header">
             <div>
               <p className="eyebrow">Goal Form</p>
-              <h2>最小入力だけで十分です</h2>
+              <h2>Minimum input is enough</h2>
             </div>
           </div>
 
@@ -174,7 +166,7 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
             </label>
             <label className="field field--full">
               <span>Success Criteria</span>
-              <textarea className="textarea" rows={4} value={form.successCriteria} onChange={(event) => updateField("successCriteria", event.target.value)} placeholder="1行に1つずつ" />
+              <textarea className="textarea" rows={4} value={form.successCriteria} onChange={(event) => updateField("successCriteria", event.target.value)} placeholder="One line per item" />
             </label>
             <label className="field field--full">
               <span>Current State</span>
@@ -182,15 +174,15 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
             </label>
             <label className="field field--full">
               <span>Constraints</span>
-              <textarea className="textarea" rows={4} value={form.constraints} onChange={(event) => updateField("constraints", event.target.value)} placeholder="1行に1つずつ" />
+              <textarea className="textarea" rows={4} value={form.constraints} onChange={(event) => updateField("constraints", event.target.value)} placeholder="One line per item" />
             </label>
             <label className="field field--full">
-              <span>Concerns / Blockers</span>
+              <span>Concerns / Likely Blockers</span>
               <textarea className="textarea" rows={3} value={form.concerns} onChange={(event) => updateField("concerns", event.target.value)} />
             </label>
             <label className="field field--full">
               <span>Today&apos;s Capacity</span>
-              <textarea className="textarea" rows={2} value={form.todayCapacity} onChange={(event) => updateField("todayCapacity", event.target.value)} placeholder="今日はどれくらい進められそうか" />
+              <textarea className="textarea" rows={2} value={form.todayCapacity} onChange={(event) => updateField("todayCapacity", event.target.value)} placeholder="How much can you realistically do today?" />
             </label>
           </div>
         </SectionCard>
@@ -199,7 +191,7 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
           <div className="section-header">
             <div>
               <p className="eyebrow">Quest Agent Draft</p>
-              <h2>叩き台</h2>
+              <h2>What the agent sees</h2>
             </div>
           </div>
 
@@ -235,13 +227,10 @@ export function IntakePageClient({ state, aiEnabled }: { state: AppState; aiEnab
               </div>
             </div>
           ) : (
-            <p className="muted">
-              Goal を入力して「{aiEnabled ? "AI で整える" : "Heuristic で整える"}」を押すと、success criteria と open questions を含む goal draft がここに出ます。
-            </p>
+            <p className="muted">Use the refine button to turn a vague goal into a cleaner working draft.</p>
           )}
         </SectionCard>
       </div>
     </div>
   );
 }
-

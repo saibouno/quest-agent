@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { generateTodayPlan } from "@/lib/quest-agent/server/ai";
 import { getAppState, recordTodayPlan } from "@/lib/quest-agent/server/store";
@@ -12,16 +12,19 @@ export async function POST(request: Request) {
     }
 
     const state = await getAppState();
-    const goal = state.goals.find((item) => item.id === payload.data.goalId);
+    const goal = payload.data.goalSnapshot ?? (payload.data.goalId ? state.goals.find((item) => item.id === payload.data.goalId) : null);
     if (!goal) {
       return NextResponse.json({ error: "Goal not found." }, { status: 404 });
     }
 
-    const quests = state.quests.filter((quest) => quest.goalId === goal.id);
-    const blockers = state.blockers.filter((blocker) => blocker.goalId === goal.id);
-    const latestReview = state.reviews.find((review) => review.goalId === goal.id);
-    const plan = await generateTodayPlan(goal, quests, blockers, latestReview);
-    await recordTodayPlan(goal.id, plan);
+    const quests = payload.data.questSnapshots ?? state.quests.filter((quest) => quest.goalId === goal.id);
+    const blockers = payload.data.blockerSnapshots ?? state.blockers.filter((blocker) => blocker.goalId === goal.id);
+    const latestReview = payload.data.latestReviewSnapshot ?? state.reviews.find((review) => review.goalId === goal.id);
+    const plan = await generateTodayPlan(goal, quests, blockers, latestReview ?? undefined);
+
+    if (!payload.data.goalSnapshot) {
+      await recordTodayPlan(goal.id, plan);
+    }
 
     return NextResponse.json({ data: plan });
   } catch (error) {

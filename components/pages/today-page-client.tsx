@@ -1,16 +1,18 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatStrip } from "@/components/shared/stat-strip";
 import { StatusPill } from "@/components/shared/status-pill";
-import type { AppState, Blocker, TodayPlan } from "@/lib/quest-agent/types";
+import type { Blocker, TodayPlan } from "@/lib/quest-agent/types";
 
-export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabled: boolean }) {
+export function TodayPageClient() {
   const router = useRouter();
+  const { state, aiEnabled, clientStorageMode, planToday, updateQuestStatus, createBlocker } = useQuestAgent();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -26,10 +28,14 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
 
   const stats = useMemo(
     () => [
-      { label: "Ready Quests", value: state.currentQuests.filter((quest) => quest.status === "ready" || quest.status === "in_progress").length, detail: "今日動かしやすい quest" },
-      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "詰まりを先に見える化" },
-      { label: "Completed This Week", value: state.stats.completedThisWeek, detail: "小さな前進の蓄積" },
-      { label: "Milestones", value: state.stats.milestoneCount, detail: "goal を支える段階数" },
+      {
+        label: "Ready Quests",
+        value: state.currentQuests.filter((quest) => quest.status === "ready" || quest.status === "in_progress").length,
+        detail: "Quests that are easiest to move today",
+      },
+      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "Stalls worth naming early" },
+      { label: "Completed This Week", value: state.stats.completedThisWeek, detail: "Small wins already recorded" },
+      { label: "Milestones", value: state.stats.milestoneCount, detail: "Stages supporting the current goal" },
     ],
     [state],
   );
@@ -38,9 +44,9 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
     return (
       <SectionCard>
         <p className="eyebrow">Today&apos;s Quests</p>
-        <h1>まずは Goal Intake を作成してください。</h1>
+        <h1>Create a goal first.</h1>
         <Link className="button" href="/intake">
-          Quest Intake へ
+          Go to Quest Intake
         </Link>
       </SectionCard>
     );
@@ -50,40 +56,37 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
     return (
       <SectionCard>
         <p className="eyebrow">Today&apos;s Quests</p>
-        <h1>今日の quest を出す前に route が必要です。</h1>
-        <p className="muted">Quest Map を先に作ると、今日やる 1〜3 件が出しやすくなります。</p>
+        <h1>You need a route before the agent can suggest today&apos;s quests.</h1>
+        <p className="muted">Build the Quest Map first so today can shrink to 1 to 3 concrete steps.</p>
         <Link className="button" href="/map">
-          Quest Map へ
+          Go to Quest Map
         </Link>
       </SectionCard>
     );
   }
 
   const plan = todayPlan ?? {
-    theme: "既存の route から、今日一番摩擦の低い quest を並べています。",
+    theme: "Use the lowest-friction quests already visible in the route.",
     quests: state.todaySuggestions,
     notes: [
-      state.currentGoal.todayCapacity ? `今日使える余力: ${state.currentGoal.todayCapacity}` : "まずは 25〜45 分で終わるものから着手します。",
+      state.currentGoal.todayCapacity ? `Today's capacity: ${state.currentGoal.todayCapacity}` : "Start with something that fits in 25 to 45 minutes.",
     ],
     mode: "heuristic" as const,
   };
 
-  function updateQuestStatus(questId: string, status: "in_progress" | "completed" | "ready") {
+  function setStatus(nextQuestId: string, status: "ready" | "in_progress" | "completed") {
     setError("");
     setMessage("");
     startTransition(async () => {
-      const response = await fetch("/api/quests/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questId, status }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Quest update failed.");
-        return;
+      try {
+        await updateQuestStatus(nextQuestId, status);
+        setMessage(status === "completed" ? "Quest marked as completed." : "Quest status updated.");
+        if (clientStorageMode === "server-backed") {
+          router.refresh();
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Quest update failed.");
       }
-      setMessage(status === "completed" ? "Quest を完了にしました。" : "Quest の状態を更新しました。");
-      router.refresh();
     });
   }
 
@@ -91,19 +94,16 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
     setError("");
     setMessage("");
     startTransition(async () => {
-      const response = await fetch("/api/ai/plan-today", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goalId: state.currentGoal?.id }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Today&apos;s plan generation failed.");
-        return;
+      try {
+        const nextPlan = await planToday({ goalId: state.currentGoal?.id });
+        setTodayPlan(nextPlan);
+        setMessage(nextPlan.mode === "ai" ? "AI refreshed today's route." : "Heuristic mode refreshed today's route.");
+        if (clientStorageMode === "server-backed") {
+          router.refresh();
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Today's route generation failed.");
       }
-      setTodayPlan(payload.data as TodayPlan);
-      setMessage(payload.data.mode === "ai" ? "AI が今日の route を再提案しました。" : "Heuristic mode で今日の route を再提案しました。");
-      router.refresh();
     });
   }
 
@@ -111,28 +111,31 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
     setError("");
     setMessage("");
     startTransition(async () => {
-      const response = await fetch("/api/blockers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goalId: state.currentGoal?.id,
+      try {
+        const result = await createBlocker({
+          goalId: state.currentGoal!.id,
           relatedQuestId: blockerForm.relatedQuestId || null,
           title: blockerForm.title,
           description: blockerForm.description,
-          blockerType: blockerForm.blockerType,
-          severity: blockerForm.severity,
+          blockerType: blockerForm.blockerType as Blocker["blockerType"],
+          severity: blockerForm.severity as Blocker["severity"],
           status: "open",
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setError(payload.error || "Blocker save failed.");
-        return;
+        });
+        setLatestBlocker(result.blocker);
+        setBlockerForm({
+          title: "",
+          description: "",
+          blockerType: "unknown",
+          severity: "medium",
+          relatedQuestId: state.currentQuests[0]?.id ?? "",
+        });
+        setMessage("Blocker recorded. The reroute suggestion is ready.");
+        if (clientStorageMode === "server-backed") {
+          router.refresh();
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Blocker save failed.");
       }
-      setLatestBlocker(payload.data as Blocker);
-      setBlockerForm({ title: "", description: "", blockerType: "unknown", severity: "medium", relatedQuestId: state.currentQuests[0]?.id ?? "" });
-      setMessage("Blocker を記録しました。next step を route に取り込みます。");
-      router.refresh();
     });
   }
 
@@ -141,12 +144,12 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">Today&apos;s Quests</p>
-          <h1>今日前に進める 1〜3 件に落とす。</h1>
-          <p className="lead">完璧な計画より、今日の着手率と再始動率を上げる構成を優先します。</p>
+          <h1>Shrink the route into 1 to 3 steps for today.</h1>
+          <p className="lead">Favor restartability and real forward motion over abstract planning.</p>
         </div>
         <div className="hero-panel__actions">
           <button className="button" onClick={handleReplan} disabled={isPending} type="button">
-            {aiEnabled ? "AI で今日を再計画" : "Heuristic で今日を再計画"}
+            {aiEnabled ? "Replan with AI" : "Replan heuristically"}
           </button>
         </div>
       </section>
@@ -193,7 +196,7 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
           <div className="section-header">
             <div>
               <p className="eyebrow">Quest Control</p>
-              <h2>着手 / 完了 / ready に戻す</h2>
+              <h2>Start, complete, or reset a quest</h2>
             </div>
           </div>
 
@@ -206,16 +209,16 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
                     <StatusPill label={quest.status} />
                   </div>
                   <h3>{quest.title}</h3>
-                  <p className="muted">{quest.description || "説明はまだありません。"}</p>
+                  <p className="muted">{quest.description || "No description yet."}</p>
                 </div>
                 <div className="button-row">
-                  <button className="button button--ghost" disabled={isPending} onClick={() => updateQuestStatus(quest.id, "ready")} type="button">
+                  <button className="button button--ghost" disabled={isPending} onClick={() => setStatus(quest.id, "ready")} type="button">
                     ready
                   </button>
-                  <button className="button button--ghost" disabled={isPending} onClick={() => updateQuestStatus(quest.id, "in_progress")} type="button">
+                  <button className="button button--ghost" disabled={isPending} onClick={() => setStatus(quest.id, "in_progress")} type="button">
                     start
                   </button>
-                  <button className="button button--secondary" disabled={isPending} onClick={() => updateQuestStatus(quest.id, "completed")} type="button">
+                  <button className="button button--secondary" disabled={isPending} onClick={() => setStatus(quest.id, "completed")} type="button">
                     complete
                   </button>
                 </div>
@@ -230,7 +233,7 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
           <div className="section-header">
             <div>
               <p className="eyebrow">Blocker Intake</p>
-              <h2>止まったら、責めずに route を直す</h2>
+              <h2>Name the stall without blaming yourself</h2>
             </div>
           </div>
 
@@ -276,7 +279,7 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
 
           <div className="button-row">
             <button className="button" disabled={isPending || !blockerForm.title.trim()} onClick={handleCreateBlocker} type="button">
-              Blocker を記録
+              Record Blocker
             </button>
           </div>
         </SectionCard>
@@ -285,7 +288,7 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
           <div className="section-header">
             <div>
               <p className="eyebrow">Reroute</p>
-              <h2>最新の詰まりに対する next step</h2>
+              <h2>Suggested next step for the latest blocker</h2>
             </div>
           </div>
 
@@ -302,15 +305,14 @@ export function TodayPageClient({ state, aiEnabled }: { state: AppState; aiEnabl
               </div>
               <div>
                 <p className="eyebrow">Suggested Next Step</p>
-                <p>{latestBlocker.suggestedNextStep || "Blocker を保存すると next step がここに出ます。"}</p>
+                <p>{latestBlocker.suggestedNextStep || "Record a blocker to get a reroute suggestion."}</p>
               </div>
             </div>
           ) : (
-            <p className="muted">まだ blocker はありません。止まった瞬間に記録すると、再始動率が上がります。</p>
+            <p className="muted">No blocker yet. Record the stall when it happens so restart becomes easier.</p>
           )}
         </SectionCard>
       </div>
     </div>
   );
 }
-

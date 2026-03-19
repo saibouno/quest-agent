@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { PropsWithChildren } from "react";
 
+import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { StatusPill } from "@/components/shared/status-pill";
 
 const navItems = [
@@ -13,29 +14,22 @@ const navItems = [
   { href: "/review", label: "Weekly Review" },
 ];
 
-export function AppShell({
-  children,
-  summary,
-}: PropsWithChildren<{
-  summary: {
-    currentGoalTitle: string;
-    nextStepTitle: string;
-    openBlockers: number;
-    momentum: string;
-    backendMode: "supabase" | "file";
-    aiMode: string;
-  };
-}>) {
+export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
+  const { state, backendMode, aiMode } = useQuestAgent();
+
+  const currentGoalTitle = state.currentGoal?.title ?? "No active goal yet";
+  const nextStepTitle = state.todaySuggestions[0]?.title ?? "Start with Quest Intake";
+  const momentum = `${state.stats.completedThisWeek} completed in the last 7 days`;
 
   return (
     <div className="shell">
       <aside className="shell__sidebar">
         <div className="brand-card">
           <p className="brand-kicker">Quest Agent</p>
-          <h1>Goal を、進められる route に変える。</h1>
+          <h1>Turn a serious goal into a route you can actually move through.</h1>
           <p className="muted">
-            目標設定、今日の一手、詰まりの reroute までを一つの流れで扱います。
+            Intake, route design, today&apos;s step, blocker reroute, and weekly review stay in one flow.
           </p>
         </div>
 
@@ -52,11 +46,11 @@ export function AppShell({
 
         <div className="sidebar-surface">
           <p className="eyebrow">Current Goal</p>
-          <strong>{summary.currentGoalTitle}</strong>
-          <p className="muted">Next Step: {summary.nextStepTitle}</p>
+          <strong>{currentGoalTitle}</strong>
+          <p className="muted">Next Step: {nextStepTitle}</p>
           <div className="pill-row">
-            <StatusPill label={summary.backendMode} />
-            <StatusPill label={summary.aiMode} />
+            <StatusPill label={backendMode} />
+            <StatusPill label={aiMode} />
           </div>
         </div>
       </aside>
@@ -65,16 +59,16 @@ export function AppShell({
         <header className="topbar surface">
           <div>
             <p className="eyebrow">Execution Probability</p>
-            <h2>曖昧さを減らし、今日の前進を増やす。</h2>
+            <h2>Reduce ambiguity, increase today&apos;s forward motion.</h2>
           </div>
           <div className="topbar__stats">
             <div>
               <span className="eyebrow">Open Blockers</span>
-              <strong>{summary.openBlockers}</strong>
+              <strong>{state.stats.openBlockerCount}</strong>
             </div>
             <div>
               <span className="eyebrow">Momentum</span>
-              <strong>{summary.momentum}</strong>
+              <strong>{momentum}</strong>
             </div>
           </div>
         </header>
@@ -83,3 +77,4 @@ export function AppShell({
     </div>
   );
 }
+
