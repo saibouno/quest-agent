@@ -7,6 +7,7 @@ Start here when you need to understand or change the product.
 2. `docs/v0_2-agent-architecture.md`
 3. `docs/v0_2-role-io-contracts.md`
 4. `docs/vercel-preview-runbook.md`
+5. `docs/continuous-improvement-operations.md`
 
 ## Source Of Truth
 - Product and architecture decisions live in `docs/`.
@@ -18,11 +19,14 @@ Start here when you need to understand or change the product.
 - The 5 internal roles are scaffold only in v0.2.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only.
 - Vercel Preview without Supabase uses browser `localStorage`, not server file writes.
+- `preview/dogfood` must stay `server-backed` and pinned to its intended Supabase URL.
+- Use one mothership chat to assign slices, handoffs, and merge order.
+- Treat `lib/quest-agent/types.ts`, `lib/quest-agent/transitions.ts`, `lib/quest-agent/server/store.ts`, `components/layout/app-shell.tsx`, and `app/page.tsx` as shared-core files that should not be edited in parallel.
 - On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
 
 ## Git Workflow
 - Default branch is `main`.
-- Keep `origin/preview/demo` and `origin/release` as operational branches. Do not delete them as part of normal cleanup.
+- Keep `origin/preview/demo`, `origin/preview/dogfood`, and `origin/release` as operational branches. Do not delete them as part of normal cleanup.
 - For normal changes, work on a `codex/*` branch, verify the needed checks, then `commit` and `push`.
 - Create GitHub PRs in Japanese by default.
 - Merge PRs into `main` with `Create a merge commit` unless there is a clear reason not to.
