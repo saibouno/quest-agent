@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
+import { DisclosureSection } from "@/components/shared/disclosure-section";
 import { SectionCard } from "@/components/shared/section-card";
-import { StatStrip } from "@/components/shared/stat-strip";
 import { StatusPill } from "@/components/shared/status-pill";
+import { buildHeuristicReviewFocusReasons, buildReviewFocusCandidates } from "@/lib/quest-agent/derive";
+import { getCopy, interpolate, localizeRuntimeError } from "@/lib/quest-agent/copy";
+import type { Goal, LeadMetricsDaily, ReviewFocusCandidateReason } from "@/lib/quest-agent/types";
 
 function todayOffset(days: number) {
   const date = new Date();
@@ -15,12 +18,26 @@ function todayOffset(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function formatRatio(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatMinutes(locale: "ja" | "en", value: number | null) {
+  if (value === null) {
+    return "-";
+  }
+  return interpolate(getCopy(locale).common.durationMinutes, { value: String(Math.round(value)) });
+}
+
 export function ReviewPageClient() {
   const router = useRouter();
-  const { state, clientStorageMode, createReview } = useQuestAgent();
+  const { state, aiEnabled, clientStorageMode, createReview, selectFocusGoal, generateReviewFocusReasons } = useQuestAgent();
+  const locale = state.uiPreferences.locale;
+  const copy = getCopy(locale);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [focusReasons, setFocusReasons] = useState<ReviewFocusCandidateReason[]>([]);
   const [form, setForm] = useState({
     periodStart: todayOffset(-6),
     periodEnd: todayOffset(0),
@@ -30,26 +47,70 @@ export function ReviewPageClient() {
     nextFocus: "",
   });
 
-  const stats = useMemo(
-    () => [
-      { label: "Reviews", value: state.currentReviews.length, detail: "Saved weekly reviews" },
-      { label: "Recent Events", value: state.recentEvents.length, detail: "Recent route history" },
-      { label: "Completed This Week", value: state.stats.completedThisWeek, detail: "Visible progress" },
-      { label: "Open Blockers", value: state.stats.openBlockerCount, detail: "Places that may need reroute" },
-    ],
-    [state],
-  );
+  const reviewGoal = state.focusGoal ?? state.activeGoals[0] ?? state.goals.find((goal) => goal.status !== "completed") ?? null;
+  const latestLeadMetrics: LeadMetricsDaily | null = state.leadMetricsDaily[0] ?? null;
+  const focusCandidates = useMemo(() => buildReviewFocusCandidates(state), [state]);
+  const heuristicReasons = useMemo(() => buildHeuristicReviewFocusReasons(focusCandidates, locale), [focusCandidates, locale]);
+  const focusReasonMap = useMemo(() => new Map(focusReasons.map((item) => [item.goalId, item])), [focusReasons]);
+  const goalMap = useMemo(() => new Map(state.goals.map((goal) => [goal.id, goal])), [state.goals]);
 
-  if (!state.currentGoal) {
+  useEffect(() => {
+    setFocusReasons(heuristicReasons);
+  }, [heuristicReasons]);
+
+  const refreshFocusReasons = useEffectEvent(async (candidates: typeof focusCandidates) => {
+    return generateReviewFocusReasons({
+      currentFocusGoalId: state.focusGoal?.id ?? null,
+      candidates,
+      locale,
+    });
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!focusCandidates.length || !aiEnabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      const nextReasons = await refreshFocusReasons(focusCandidates);
+      if (!cancelled) {
+        setFocusReasons(nextReasons);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aiEnabled, focusCandidates, locale, state.focusGoal?.id]);
+
+  if (!reviewGoal) {
     return (
       <SectionCard>
-        <p className="eyebrow">Weekly Review</p>
-        <h1>You need a goal before you can review the route.</h1>
-        <Link className="button" href="/intake">
-          Go to Quest Intake
+        <p className="eyebrow">{copy.nav.review}</p>
+        <h1>{copy.review.noGoalTitle}</h1>
+        <Link className="button" href="/intake?new=1">
+          {copy.review.addGoal}
         </Link>
       </SectionCard>
     );
+  }
+
+  const leadSummary = latestLeadMetrics
+    ? `${copy.review.stats.mainRatio} ${formatRatio(latestLeadMetrics.mainWorkRatio)} ・ ${copy.review.stats.startDelay} ${formatMinutes(locale, latestLeadMetrics.startDelayMinutes)} ・ ${copy.review.stats.switchDensity} ${latestLeadMetrics.switchDensity}`
+    : copy.review.dailyLeadEmpty;
+  const topCandidate = focusCandidates[0] ? goalMap.get(focusCandidates[0].goalId) : null;
+  const topCandidateReason = focusCandidates[0] ? focusReasonMap.get(focusCandidates[0].goalId) ?? heuristicReasons.find((item) => item.goalId === focusCandidates[0].goalId) : null;
+  const candidateSummary = topCandidate ? `${topCandidate.title} ・ ${topCandidateReason?.reason ?? copy.review.candidateReason}`  : copy.review.focusCandidatesEmpty;
+  const reviewsSummary = state.reviews.length ? interpolate(copy.common.itemCount, { value: String(state.reviews.length) }) : copy.review.savedReviewsEmpty;
+
+  function refreshIfNeeded() {
+    if (clientStorageMode === "server-backed") {
+      router.refresh();
+    }
   }
 
   function updateField(name: string, value: string) {
@@ -62,7 +123,7 @@ export function ReviewPageClient() {
     startTransition(async () => {
       try {
         await createReview({
-          goalId: state.currentGoal!.id,
+          goalId: reviewGoal.id,
           periodStart: form.periodStart,
           periodEnd: form.periodEnd,
           summary: form.summary,
@@ -70,13 +131,25 @@ export function ReviewPageClient() {
           rerouteNote: form.rerouteNote,
           nextFocus: form.nextFocus,
         });
-        setMessage("Weekly review saved. The route can now reroute from evidence, not self-blame.");
+        setMessage(copy.review.messages.saved);
         setForm({ periodStart: todayOffset(-6), periodEnd: todayOffset(0), summary: "", learnings: "", rerouteNote: "", nextFocus: "" });
-        if (clientStorageMode === "server-backed") {
-          router.refresh();
-        }
+        refreshIfNeeded();
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Review save failed.");
+        setError(localizeRuntimeError(locale, nextError, copy.review.errors.save));
+      }
+    });
+  }
+
+  function handleSetCandidate(goalId: string) {
+    setError("");
+    setMessage("");
+    startTransition(async () => {
+      try {
+        await selectFocusGoal({ goalId, reason: copy.review.messages.focusReason });
+        setMessage(copy.review.messages.focusSaved);
+        refreshIfNeeded();
+      } catch (nextError) {
+        setError(localizeRuntimeError(locale, nextError, copy.review.errors.focusSave));
       }
     });
   }
@@ -85,112 +158,166 @@ export function ReviewPageClient() {
     <div className="page-stack">
       <section className="hero-panel surface">
         <div>
-          <p className="eyebrow">Weekly Review</p>
-          <h1>When the route stalls, fix the design instead of blaming motivation.</h1>
-          <p className="lead">Review is where Quest Agent turns friction into the next cleaner route.</p>
+          <p className="eyebrow">{copy.nav.review}</p>
+          <h1>{copy.review.title}</h1>
+          {copy.review.lead ? <p className="lead">{copy.review.lead}</p> : null}
         </div>
       </section>
 
-      <StatStrip items={stats} />
       {message ? <p className="feedback feedback--ok">{message}</p> : null}
       {error ? <p className="feedback feedback--error">{error}</p> : null}
-
-      <div className="two-column two-column--wide">
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">Review Form</p>
-              <h2>{state.currentGoal.title}</h2>
-            </div>
-            <StatusPill label={state.currentGoal.status} />
-          </div>
-
-          <div className="form-grid">
-            <label className="field">
-              <span>Period Start</span>
-              <input className="input" type="date" value={form.periodStart} onChange={(event) => updateField("periodStart", event.target.value)} />
-            </label>
-            <label className="field">
-              <span>Period End</span>
-              <input className="input" type="date" value={form.periodEnd} onChange={(event) => updateField("periodEnd", event.target.value)} />
-            </label>
-            <label className="field field--full">
-              <span>Progress Summary</span>
-              <textarea className="textarea" rows={4} value={form.summary} onChange={(event) => updateField("summary", event.target.value)} />
-            </label>
-            <label className="field field--full">
-              <span>Learnings</span>
-              <textarea className="textarea" rows={3} value={form.learnings} onChange={(event) => updateField("learnings", event.target.value)} />
-            </label>
-            <label className="field field--full">
-              <span>Reroute Note</span>
-              <textarea className="textarea" rows={3} value={form.rerouteNote} onChange={(event) => updateField("rerouteNote", event.target.value)} placeholder="What should change next?" />
-            </label>
-            <label className="field field--full">
-              <span>Next Focus</span>
-              <textarea className="textarea" rows={3} value={form.nextFocus} onChange={(event) => updateField("nextFocus", event.target.value)} placeholder="What matters most next week?" />
-            </label>
-          </div>
-
-          <div className="button-row">
-            <button className="button" disabled={isPending || !form.summary.trim()} onClick={handleSave} type="button">
-              Save Weekly Review
-            </button>
-          </div>
-        </SectionCard>
-
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">Saved Reviews</p>
-              <h2>History</h2>
-            </div>
-          </div>
-
-          {state.currentReviews.length ? (
-            <div className="stack-lg">
-              {state.currentReviews.map((review) => (
-                <div className="milestone-card" key={review.id}>
-                  <div className="milestone-card__header">
-                    <div>
-                      <p className="eyebrow">
-                        {review.periodStart} - {review.periodEnd}
-                      </p>
-                      <h3>{review.summary}</h3>
-                    </div>
-                    <StatusPill label="completed" />
-                  </div>
-                  <p><strong>Learnings:</strong> {review.learnings || "-"}</p>
-                  <p><strong>Reroute:</strong> {review.rerouteNote || "-"}</p>
-                  <p><strong>Next Focus:</strong> {review.nextFocus || "-"}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="muted">No review yet. The first review makes the next reroute much easier.</p>
-          )}
-        </SectionCard>
-      </div>
 
       <SectionCard>
         <div className="section-header">
           <div>
-            <p className="eyebrow">Recent Events</p>
-            <h2>Route log</h2>
+            <p className="eyebrow">{copy.review.formTitle}</p>
+            <h2>{reviewGoal.title}</h2>
           </div>
+          <StatusPill label={reviewGoal.status} />
         </div>
-        <div className="event-list">
-          {state.recentEvents.map((event) => (
-            <div className="event-row" key={event.id}>
-              <div>
-                <strong>{event.type}</strong>
-                <p className="muted">{new Date(event.createdAt).toLocaleString("ja-JP")}</p>
-              </div>
-              <code>{JSON.stringify(event.payload)}</code>
-            </div>
-          ))}
+        {latestLeadMetrics ? (
+          <div className="pill-row">
+            <span className="pill">{copy.review.stats.mainRatio} {formatRatio(latestLeadMetrics.mainWorkRatio)}</span>
+            <span className="pill">{copy.review.stats.startDelay} {formatMinutes(locale, latestLeadMetrics.startDelayMinutes)}</span>
+            <span className="pill">{copy.review.stats.switchDensity} {latestLeadMetrics.switchDensity}</span>
+          </div>
+        ) : null}
+        <div className="form-grid">
+          <label className="field">
+            <span>{copy.review.fields.periodStart}</span>
+            <input className="input" type="date" value={form.periodStart} onChange={(event) => updateField("periodStart", event.target.value)} />
+          </label>
+          <label className="field">
+            <span>{copy.review.fields.periodEnd}</span>
+            <input className="input" type="date" value={form.periodEnd} onChange={(event) => updateField("periodEnd", event.target.value)} />
+          </label>
+          <label className="field field--full">
+            <span>{copy.review.fields.summary}</span>
+            <textarea className="textarea" rows={4} value={form.summary} onChange={(event) => updateField("summary", event.target.value)} />
+          </label>
+          <label className="field field--full">
+            <span>{copy.review.fields.learnings}</span>
+            <textarea className="textarea" rows={3} value={form.learnings} onChange={(event) => updateField("learnings", event.target.value)} />
+          </label>
+          <label className="field field--full">
+            <span>{copy.review.fields.rerouteNote}</span>
+            <textarea className="textarea" rows={3} value={form.rerouteNote} onChange={(event) => updateField("rerouteNote", event.target.value)} />
+          </label>
+          <label className="field field--full">
+            <span>{copy.review.fields.nextFocus}</span>
+            <textarea className="textarea" rows={3} value={form.nextFocus} onChange={(event) => updateField("nextFocus", event.target.value)} />
+          </label>
+        </div>
+        <div className="button-row">
+          <button className="button" disabled={isPending || !form.summary.trim()} onClick={handleSave} type="button">
+            {copy.review.buttons.saveReview}
+          </button>
         </div>
       </SectionCard>
+
+      <DisclosureSection
+        eyebrow={copy.review.dailyLeadTitle}
+        title={copy.review.dailyLeadTitle}
+        summary={leadSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {state.leadMetricsDaily.length ? (
+          <div className="stack-lg">
+            {state.leadMetricsDaily.slice(0, 7).map((metrics) => (
+              <div className="queue-card" key={metrics.dayKey}>
+                <div className="queue-card__header">
+                  <div>
+                    <div className="pill-row">
+                      <StatusPill label={metrics.monitoringDone ? "active" : "planned"} />
+                    </div>
+                    <h3>{metrics.dayKey}</h3>
+                    <p className="muted">{copy.review.stats.mainRatio} {formatRatio(metrics.mainWorkRatio)} / {copy.review.stats.metaRatio} {formatRatio(metrics.metaWorkRatio)}</p>
+                  </div>
+                </div>
+                <p><strong>{copy.review.labels.startDelay}:</strong> {formatMinutes(locale, metrics.startDelayMinutes)}</p>
+                <p><strong>{copy.review.labels.resumeDelay}:</strong> {formatMinutes(locale, metrics.resumeDelayMinutes)}</p>
+                <p><strong>{copy.review.labels.switchDensity}:</strong> {metrics.switchDensity}</p>
+                <p><strong>{copy.review.labels.ifThenCoverage}:</strong> {formatRatio(metrics.ifThenCoverage)}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">{copy.review.dailyLeadEmpty}</p>
+        )}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.review.focusCandidatesTitle}
+        title={copy.review.focusCandidatesTitle}
+        summary={candidateSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {focusCandidates.length ? (
+          <div className="stack-lg">
+            {focusCandidates.map((candidate) => {
+              const goal = goalMap.get(candidate.goalId) as Goal;
+              const reason = focusReasonMap.get(candidate.goalId) ?? heuristicReasons.find((item) => item.goalId === candidate.goalId);
+              return (
+                <div className="portfolio-card" key={candidate.goalId}>
+                  <div className="portfolio-card__header">
+                    <div>
+                      <div className="pill-row">
+                        <StatusPill label={goal.status} />
+                        {goal.id === state.focusGoal?.id ? <StatusPill label="active" /> : null}
+                        {reason ? <StatusPill label={reason.mode} /> : null}
+                      </div>
+                      <h3>{goal.title}</h3>
+                      <p className="muted">{goal.description || goal.currentState || copy.common.noSummary}</p>
+                      <p className="muted">{reason?.reason || copy.review.candidateReason}</p>
+                    </div>
+                    {goal.id !== state.focusGoal?.id ? (
+                      <button className="button button--secondary" disabled={isPending} onClick={() => handleSetCandidate(goal.id)} type="button">
+                        {copy.review.buttons.setFocus}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="muted">{copy.review.focusCandidatesEmpty}</p>
+        )}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.review.savedReviewsTitle}
+        title={copy.review.savedReviewsTitle}
+        summary={reviewsSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {state.reviews.length ? (
+          <div className="stack-lg">
+            {state.reviews.map((review) => (
+              <div className="milestone-card" key={review.id}>
+                <div className="milestone-card__header">
+                  <div>
+                    <p className="eyebrow">{review.periodStart} - {review.periodEnd}</p>
+                    <h3>{review.summary}</h3>
+                  </div>
+                  <StatusPill label="completed" />
+                </div>
+                <p><strong>{copy.review.labels.learnings}:</strong> {review.learnings || copy.common.noData}</p>
+                <p><strong>{copy.review.labels.reroute}:</strong> {review.rerouteNote || copy.common.noData}</p>
+                <p><strong>{copy.review.labels.nextFocus}:</strong> {review.nextFocus || copy.common.noData}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">{copy.review.savedReviewsEmpty}</p>
+        )}
+      </DisclosureSection>
     </div>
   );
 }

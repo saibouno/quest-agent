@@ -1,36 +1,47 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { PropsWithChildren } from "react";
+import { useState, type PropsWithChildren } from "react";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { StatusPill } from "@/components/shared/status-pill";
-
-const navItems = [
-  { href: "/intake", label: "Quest Intake" },
-  { href: "/map", label: "Quest Map" },
-  { href: "/today", label: "Today's Quests" },
-  { href: "/review", label: "Weekly Review" },
-];
+import { getCopy } from "@/lib/quest-agent/copy";
+import type { UiLocale } from "@/lib/quest-agent/types";
 
 export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
-  const { state, backendMode, aiMode } = useQuestAgent();
+  const { state, backendMode, aiMode, updateUiPreferences } = useQuestAgent();
+  const locale = state.uiPreferences.locale;
+  const copy = getCopy(locale);
+  const [showEnvironment, setShowEnvironment] = useState(false);
+  const navItems = [
+    { href: "/portfolio", label: copy.nav.portfolio },
+    { href: "/intake", label: copy.nav.intake },
+    { href: "/map", label: copy.nav.map },
+    { href: "/today", label: copy.nav.today },
+    { href: "/return", label: copy.nav.returnFlow },
+    { href: "/review", label: copy.nav.review },
+  ];
 
-  const currentGoalTitle = state.currentGoal?.title ?? "No active goal yet";
-  const nextStepTitle = state.todaySuggestions[0]?.title ?? "Start with Quest Intake";
-  const momentum = `${state.stats.completedThisWeek} completed in the last 7 days`;
+  const focusGoalTitle = state.focusGoal?.title ?? copy.portfolio.focusEmpty;
+  const nextRestartLabel = state.resumeQueue[0]?.goal?.title ?? state.todaySuggestions[0]?.title ?? copy.common.noData;
+  const activeGoalLabel = `${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit}`;
+
+  async function handleLocaleChange(nextLocale: UiLocale) {
+    if (nextLocale === locale) {
+      return;
+    }
+    await updateUiPreferences({ locale: nextLocale });
+  }
 
   return (
     <div className="shell">
       <aside className="shell__sidebar">
         <div className="brand-card">
-          <p className="brand-kicker">Quest Agent</p>
-          <h1>Turn a serious goal into a route you can actually move through.</h1>
-          <p className="muted">
-            Intake, route design, today&apos;s step, blocker reroute, and weekly review stay in one flow.
-          </p>
+          <p className="brand-kicker">{copy.shell.kicker}</p>
+          <h1>{copy.shell.title}</h1>
+          {copy.shell.description ? <p className="muted">{copy.shell.description}</p> : null}
         </div>
 
         <nav className="nav-panel">
@@ -44,32 +55,64 @@ export function AppShell({ children }: PropsWithChildren) {
           })}
         </nav>
 
-        <div className="sidebar-surface">
-          <p className="eyebrow">Current Goal</p>
-          <strong>{currentGoalTitle}</strong>
-          <p className="muted">Next Step: {nextStepTitle}</p>
-          <div className="pill-row">
-            <StatusPill label={backendMode} />
-            <StatusPill label={aiMode} />
+        <div className="sidebar-surface stack-md">
+          <div>
+            <p className="eyebrow">{copy.shell.localeLabel}</p>
+            <div className="button-row">
+              <button className={locale === "ja" ? "button" : "button button--ghost"} onClick={() => void handleLocaleChange("ja")} type="button">
+                {copy.shell.languageJa}
+              </button>
+              <button className={locale === "en" ? "button" : "button button--ghost"} onClick={() => void handleLocaleChange("en")} type="button">
+                {copy.shell.languageEn}
+              </button>
+            </div>
+          </div>
+
+          <div className="stack-md">
+            <div>
+              <p className="eyebrow">{copy.shell.mirror}</p>
+              <strong>{state.mirrorCard.headline}</strong>
+              <p className="muted">{copy.shell.focus}: {focusGoalTitle}</p>
+              <p className="muted">{copy.shell.nextRestart}: {nextRestartLabel}</p>
+            </div>
+            <div className="button-row">
+              <span className="pill pill--active">{copy.shell.activeGoalsPill} {activeGoalLabel}</span>
+              {state.mirrorCard.needsReturn ? (
+                <Link className="button button--secondary" href="/return">
+                  {copy.common.openReturn}
+                </Link>
+              ) : null}
+              <button className="button button--ghost" onClick={() => setShowEnvironment((current) => !current)} type="button">
+                {showEnvironment ? copy.common.hideDetails : copy.common.showDetails}
+              </button>
+            </div>
+            {showEnvironment ? (
+              <div className="stack-md">
+                <p className="eyebrow">{copy.shell.environment}</p>
+                <div className="pill-row">
+                  <StatusPill label={backendMode} />
+                  <StatusPill label={aiMode} />
+                  <StatusPill label={state.mirrorCard.needsReturn ? "detour" : "fight"} />
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </aside>
 
       <main className="shell__main">
-        <header className="topbar surface">
+        <header className="topbar topbar--compact surface">
           <div>
-            <p className="eyebrow">Execution Probability</p>
-            <h2>Reduce ambiguity, increase today&apos;s forward motion.</h2>
+            <p className="eyebrow">{copy.shell.focus}</p>
+            <h2>{focusGoalTitle}</h2>
           </div>
-          <div className="topbar__stats">
-            <div>
-              <span className="eyebrow">Open Blockers</span>
-              <strong>{state.stats.openBlockerCount}</strong>
-            </div>
-            <div>
-              <span className="eyebrow">Momentum</span>
-              <strong>{momentum}</strong>
-            </div>
+          <div className="button-row">
+            <span className="pill pill--active">{copy.shell.activeGoals} {activeGoalLabel}</span>
+            {state.mirrorCard.needsReturn ? (
+              <Link className="button button--secondary" href="/return">
+                {copy.common.openReturn}
+              </Link>
+            ) : null}
           </div>
         </header>
         {children}
@@ -77,4 +120,3 @@ export function AppShell({ children }: PropsWithChildren) {
     </div>
   );
 }
-

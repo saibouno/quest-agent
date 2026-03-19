@@ -1,16 +1,22 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { QuestAgentProvider } from "@/components/providers/quest-agent-provider";
+import { getCopy } from "@/lib/quest-agent/copy";
 import { getBackendModeLabel, getClientStorageHint } from "@/lib/quest-agent/server/runtime";
 import { getAppState, isAiConfigured } from "@/lib/quest-agent/server/store";
 
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Quest Agent v0.2 scaffold",
-  description: "Turn ambitious goals into executable daily quests.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const state = await getAppState();
+  const copy = getCopy(state.uiPreferences.locale);
+
+  return {
+    title: copy.metadata.title,
+    description: copy.metadata.description,
+  };
+}
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const state = await getAppState();
@@ -19,7 +25,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const aiMode = isAiConfigured() ? "ai" : "heuristic";
 
   return (
-    <html lang="ja">
+    <html lang={state.uiPreferences.locale}>
       <body>
         <QuestAgentProvider aiMode={aiMode} initialBackendMode={backendMode} initialState={state} storageHint={storageHint}>
           <AppShell>{children}</AppShell>

@@ -1,35 +1,38 @@
 {
-  "name": "quest-agent",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Quest Agent v0.1 - turn ambitious goals into executable daily quests.",
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc --noEmit"
-  },
-  "keywords": [
-    "nextjs",
-    "quest-agent",
-    "supabase"
-  ],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@supabase/supabase-js": "^2.99.2",
-    "next": "^16.1.6",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@types/node": "^25.5.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.1.6",
-    "typescript": "^5.9.3"
-  }
+    "name":  "quest-agent",
+    "version":  "0.1.0",
+    "private":  true,
+    "description":  "Quest Agent v0.1 - turn ambitious goals into executable daily quests.",
+    "scripts":  {
+                    "dev":  "next dev",
+                    "build":  "next build",
+                    "start":  "next start",
+                    "lint":  "eslint . --max-warnings=0",
+                    "typecheck":  "tsc --noEmit",
+                    "lint:noprofile":  "cmd /d /s /c \"eslint . --max-warnings=0\"",
+                    "typecheck:noprofile":  "cmd /d /s /c \"tsc --noEmit\"",
+                    "copy:audit":  "node scripts/copy-audit.mjs"
+                },
+    "keywords":  [
+                     "nextjs",
+                     "quest-agent",
+                     "supabase"
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "dependencies":  {
+                         "@supabase/supabase-js":  "^2.99.2",
+                         "next":  "^16.1.6",
+                         "react":  "^19.2.4",
+                         "react-dom":  "^19.2.4",
+                         "zod":  "^4.3.6"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "^25.5.0",
+                            "@types/react":  "^19.2.14",
+                            "@types/react-dom":  "^19.2.3",
+                            "eslint":  "^9.39.4",
+                            "eslint-config-next":  "^16.1.6",
+                            "typescript":  "^5.9.3"
+                        }
 }

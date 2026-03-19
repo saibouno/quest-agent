@@ -1,34 +1,77 @@
-import "server-only";
+﻿import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 import { unstable_noStore as noStore } from "next/cache";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { defaultUserProfile, emptyPersistedState, enrichState, makeId, nowIso } from "@/lib/quest-agent/derive";
+import { defaultUiPreferences, defaultUserProfile, emptyPersistedState, enrichState } from "@/lib/quest-agent/derive";
 import { hasSupabaseConfig, shouldUseBrowserLocalPreview } from "@/lib/quest-agent/server/runtime";
+import {
+  createBlockerInState,
+  createReviewInState,
+  finishWorkSessionInState,
+  parkGoalInState,
+  recordBuildImproveDecisionInState,
+  recordReturnInterviewInState,
+  recordReturnRunInState,
+  recordTodayPlanInState,
+  replaceMapInState,
+  resumeGoalInState,
+  saveGoalInState,
+  selectFocusGoalInState,
+  startWorkSessionInState,
+  updatePortfolioSettingsInState,
+  updateQuestStatusInState,
+  updateUiPreferencesInState,
+} from "@/lib/quest-agent/transitions";
 import type {
   AppState,
   Artifact,
   Blocker,
   BlockerInput,
+  BottleneckInterview,
+  BuildImproveCheckInput,
+  BuildImproveDecision,
   Decision,
+  FocusGoalInput,
   Goal,
   GoalInput,
-  MapDraftMilestone,
+  LeadMetricsDaily,
   MapInput,
+  MetaWorkFlag,
   Milestone,
+  ParkGoalInput,
   PersistedState,
+  PortfolioSettings,
+  PortfolioSettingsInput,
+  UiPreferences,
+  UiPreferencesInput,
   Quest,
   QuestEvent,
+  ResumeGoalInput,
+  ResumeQueueItem,
+  ReturnInterviewInput,
+  ReturnRun,
+  ReturnRunInput,
   Review,
   ReviewInput,
   TodayPlan,
+  WorkSession,
+  WorkSessionFinishInput,
+  WorkSessionStartInput,
 } from "@/lib/quest-agent/types";
 
 const fallbackPath = path.join(process.cwd(), "data", "quest-agent-fallback.json");
 
 type DbRow = Record<string, unknown>;
+
+type TableConfig = {
+  name: string;
+  previousIds: string[];
+  nextIds: string[];
+  serializedRows: DbRow[];
+};
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -50,20 +93,12 @@ function asNullableNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
 }
 
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+function asBoolean(value: unknown): boolean {
+  return typeof value === "boolean" ? value : false;
 }
 
-function buildEvent(goalId: string, entityType: QuestEvent["entityType"], entityId: string, type: string, payload: Record<string, unknown>): QuestEvent {
-  return {
-    id: makeId(),
-    goalId,
-    entityType,
-    entityId,
-    type,
-    payload,
-    createdAt: nowIso(),
-  };
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function toGoal(row: DbRow): Goal {
@@ -177,6 +212,352 @@ function toEvent(row: DbRow): QuestEvent {
     createdAt: asString(row.created_at),
   };
 }
+function toPortfolioSettings(row: DbRow | null): PortfolioSettings {
+  if (!row) {
+    return emptyPersistedState().portfolioSettings;
+  }
+
+  return {
+    wipLimit: asNumber(row.wip_limit) || 1,
+    focusGoalId: asNullableString(row.focus_goal_id),
+    updatedAt: asString(row.updated_at),
+  };
+}
+
+function toUiPreferences(row: DbRow | null): UiPreferences {
+  if (!row) {
+    return defaultUiPreferences();
+  }
+
+  return {
+    locale: (asString(row.locale) as UiPreferences["locale"]) || "ja",
+  };
+}
+
+function toResumeQueueItem(row: DbRow): ResumeQueueItem {
+  return {
+    id: asString(row.id),
+    goalId: asString(row.goal_id),
+    stopMode: (asString(row.stop_mode) as ResumeQueueItem["stopMode"]) || "hold",
+    parkedAt: asString(row.parked_at),
+    reason: asString(row.reason),
+    parkingNote: asString(row.parking_note),
+    nextRestartStep: asString(row.next_restart_step),
+    resumeTriggerType: (asString(row.resume_trigger_type) as ResumeQueueItem["resumeTriggerType"]) || "manual",
+    resumeTriggerText: asString(row.resume_trigger_text),
+    status: (asString(row.status) as ResumeQueueItem["status"]) || "waiting",
+  };
+}
+
+function toBuildImproveDecision(row: DbRow): BuildImproveDecision {
+  return {
+    id: asString(row.id),
+    goalId: asString(row.goal_id),
+    questId: asNullableString(row.quest_id),
+    category: (asString(row.category) as BuildImproveDecision["category"]) || "main",
+    mainConnection: (asString(row.main_connection) as BuildImproveDecision["mainConnection"]) || "direct",
+    artifactCommitment: asString(row.artifact_commitment),
+    timeboxMinutes: asNumber(row.timebox_minutes),
+    doneWhen: asString(row.done_when),
+    mode: (asString(row.mode) as BuildImproveDecision["mode"]) || "build",
+    rationale: asString(row.rationale),
+    createdAt: asString(row.created_at),
+  };
+}
+
+function toWorkSession(row: DbRow): WorkSession {
+  return {
+    id: asString(row.id),
+    goalId: asString(row.goal_id),
+    questId: asNullableString(row.quest_id),
+    gateDecisionId: asNullableString(row.gate_decision_id),
+    category: (asString(row.category) as WorkSession["category"]) || "main",
+    plannedMinutes: asNumber(row.planned_minutes),
+    startedAt: asString(row.started_at),
+    endedAt: asNullableString(row.ended_at),
+    artifactNote: asString(row.artifact_note),
+  };
+}
+
+function toMetaWorkFlag(row: DbRow): MetaWorkFlag {
+  return {
+    id: asString(row.id),
+    goalId: asNullableString(row.goal_id),
+    dayKey: asString(row.day_key),
+    flagType: (asString(row.flag_type) as MetaWorkFlag["flagType"]) || "main_work_absent",
+    message: asString(row.message),
+    createdAt: asString(row.created_at),
+  };
+}
+
+function toBottleneckInterview(row: DbRow): BottleneckInterview {
+  return {
+    id: asString(row.id),
+    goalId: asString(row.goal_id),
+    mainQuest: asString(row.main_quest),
+    primaryBottleneck: (asString(row.primary_bottleneck) as BottleneckInterview["primaryBottleneck"]) || "unclear",
+    avoidanceHypothesis: asString(row.avoidance_hypothesis),
+    smallestWin: asString(row.smallest_win),
+    createdAt: asString(row.created_at),
+  };
+}
+
+function toReturnRun(row: DbRow): ReturnRun {
+  return {
+    id: asString(row.id),
+    goalId: asString(row.goal_id),
+    questId: asNullableString(row.quest_id),
+    interviewId: asNullableString(row.interview_id),
+    mirrorMessage: asString(row.mirror_message),
+    diagnosisType: (asString(row.diagnosis_type) as ReturnRun["diagnosisType"]) || "unclear",
+    woopPlan: asString(row.woop_plan),
+    ifThenPlan: asString(row.if_then_plan),
+    next15mAction: asString(row.next_15m_action),
+    decision: (asString(row.decision) as ReturnRun["decision"]) || "fight",
+    decisionNote: asString(row.decision_note),
+    reviewDate: asNullableString(row.review_date),
+    createdAt: asString(row.created_at),
+  };
+}
+
+function toLeadMetricsDaily(row: DbRow): LeadMetricsDaily {
+  return {
+    dayKey: asString(row.day_key),
+    mainWorkRatio: asNumber(row.main_work_ratio),
+    metaWorkRatio: asNumber(row.meta_work_ratio),
+    startDelayMinutes: asNullableNumber(row.start_delay_minutes),
+    resumeDelayMinutes: asNullableNumber(row.resume_delay_minutes),
+    switchDensity: asNumber(row.switch_density),
+    ifThenCoverage: asNumber(row.if_then_coverage),
+    monitoringDone: asBoolean(row.monitoring_done),
+  };
+}
+
+function goalRow(goal: Goal): DbRow {
+  return {
+    id: goal.id,
+    title: goal.title,
+    description: goal.description,
+    why: goal.why,
+    deadline: goal.deadline,
+    success_criteria: goal.successCriteria,
+    current_state: goal.currentState,
+    constraints: goal.constraints,
+    concerns: goal.concerns,
+    today_capacity: goal.todayCapacity,
+    status: goal.status,
+    created_at: goal.createdAt,
+    updated_at: goal.updatedAt,
+  };
+}
+
+function milestoneRow(milestone: Milestone): DbRow {
+  return {
+    id: milestone.id,
+    goal_id: milestone.goalId,
+    title: milestone.title,
+    description: milestone.description,
+    sequence: milestone.sequence,
+    target_date: milestone.targetDate,
+    status: milestone.status,
+    created_at: milestone.createdAt,
+  };
+}
+
+function questRow(quest: Quest): DbRow {
+  return {
+    id: quest.id,
+    goal_id: quest.goalId,
+    milestone_id: quest.milestoneId,
+    title: quest.title,
+    description: quest.description,
+    priority: quest.priority,
+    status: quest.status,
+    due_date: quest.dueDate,
+    estimated_minutes: quest.estimatedMinutes,
+    quest_type: quest.questType,
+    created_at: quest.createdAt,
+    updated_at: quest.updatedAt,
+  };
+}
+
+function blockerRow(blocker: Blocker): DbRow {
+  return {
+    id: blocker.id,
+    goal_id: blocker.goalId,
+    related_quest_id: blocker.relatedQuestId,
+    title: blocker.title,
+    description: blocker.description,
+    blocker_type: blocker.blockerType,
+    severity: blocker.severity,
+    status: blocker.status,
+    suggested_next_step: blocker.suggestedNextStep,
+    detected_at: blocker.detectedAt,
+  };
+}
+
+function reviewRow(review: Review): DbRow {
+  return {
+    id: review.id,
+    goal_id: review.goalId,
+    period_start: review.periodStart,
+    period_end: review.periodEnd,
+    summary: review.summary,
+    learnings: review.learnings,
+    reroute_note: review.rerouteNote,
+    next_focus: review.nextFocus,
+    created_at: review.createdAt,
+  };
+}
+
+function decisionRow(decision: Decision): DbRow {
+  return {
+    id: decision.id,
+    goal_id: decision.goalId,
+    title: decision.title,
+    description: decision.description,
+    rationale: decision.rationale,
+    decided_at: decision.decidedAt,
+  };
+}
+
+function artifactRow(artifact: Artifact): DbRow {
+  return {
+    id: artifact.id,
+    goal_id: artifact.goalId,
+    title: artifact.title,
+    artifact_type: artifact.artifactType,
+    url_or_ref: artifact.urlOrRef,
+    note: artifact.note,
+    created_at: artifact.createdAt,
+  };
+}
+
+function eventRow(event: QuestEvent): DbRow {
+  return {
+    id: event.id,
+    goal_id: event.goalId,
+    entity_type: event.entityType,
+    entity_id: event.entityId,
+    type: event.type,
+    payload: event.payload,
+    created_at: event.createdAt,
+  };
+}
+
+function portfolioSettingsRow(portfolioSettings: PortfolioSettings): DbRow {
+  return {
+    id: "default",
+    wip_limit: portfolioSettings.wipLimit,
+    focus_goal_id: portfolioSettings.focusGoalId,
+    updated_at: portfolioSettings.updatedAt,
+  };
+}
+
+function uiPreferencesRow(uiPreferences: UiPreferences): DbRow {
+  return {
+    id: "default",
+    locale: uiPreferences.locale,
+  };
+}
+
+function resumeQueueItemRow(item: ResumeQueueItem): DbRow {
+  return {
+    id: item.id,
+    goal_id: item.goalId,
+    stop_mode: item.stopMode,
+    parked_at: item.parkedAt,
+    reason: item.reason,
+    parking_note: item.parkingNote,
+    next_restart_step: item.nextRestartStep,
+    resume_trigger_type: item.resumeTriggerType,
+    resume_trigger_text: item.resumeTriggerText,
+    status: item.status,
+  };
+}
+function buildImproveDecisionRow(decision: BuildImproveDecision): DbRow {
+  return {
+    id: decision.id,
+    goal_id: decision.goalId,
+    quest_id: decision.questId,
+    category: decision.category,
+    main_connection: decision.mainConnection,
+    artifact_commitment: decision.artifactCommitment,
+    timebox_minutes: decision.timeboxMinutes,
+    done_when: decision.doneWhen,
+    mode: decision.mode,
+    rationale: decision.rationale,
+    created_at: decision.createdAt,
+  };
+}
+
+function workSessionRow(session: WorkSession): DbRow {
+  return {
+    id: session.id,
+    goal_id: session.goalId,
+    quest_id: session.questId,
+    gate_decision_id: session.gateDecisionId,
+    category: session.category,
+    planned_minutes: session.plannedMinutes,
+    started_at: session.startedAt,
+    ended_at: session.endedAt,
+    artifact_note: session.artifactNote,
+  };
+}
+
+function metaWorkFlagRow(flag: MetaWorkFlag): DbRow {
+  return {
+    id: flag.id,
+    goal_id: flag.goalId,
+    day_key: flag.dayKey,
+    flag_type: flag.flagType,
+    message: flag.message,
+    created_at: flag.createdAt,
+  };
+}
+
+function bottleneckInterviewRow(interview: BottleneckInterview): DbRow {
+  return {
+    id: interview.id,
+    goal_id: interview.goalId,
+    main_quest: interview.mainQuest,
+    primary_bottleneck: interview.primaryBottleneck,
+    avoidance_hypothesis: interview.avoidanceHypothesis,
+    smallest_win: interview.smallestWin,
+    created_at: interview.createdAt,
+  };
+}
+
+function returnRunRow(returnRun: ReturnRun): DbRow {
+  return {
+    id: returnRun.id,
+    goal_id: returnRun.goalId,
+    quest_id: returnRun.questId,
+    interview_id: returnRun.interviewId,
+    mirror_message: returnRun.mirrorMessage,
+    diagnosis_type: returnRun.diagnosisType,
+    woop_plan: returnRun.woopPlan,
+    if_then_plan: returnRun.ifThenPlan,
+    next_15m_action: returnRun.next15mAction,
+    decision: returnRun.decision,
+    decision_note: returnRun.decisionNote,
+    review_date: returnRun.reviewDate,
+    created_at: returnRun.createdAt,
+  };
+}
+
+function leadMetricsDailyRow(metrics: LeadMetricsDaily): DbRow {
+  return {
+    day_key: metrics.dayKey,
+    main_work_ratio: metrics.mainWorkRatio,
+    meta_work_ratio: metrics.metaWorkRatio,
+    start_delay_minutes: metrics.startDelayMinutes,
+    resume_delay_minutes: metrics.resumeDelayMinutes,
+    switch_density: metrics.switchDensity,
+    if_then_coverage: metrics.ifThenCoverage,
+    monitoring_done: metrics.monitoringDone,
+  };
+}
 
 function getSupabaseClient() {
   if (!hasSupabaseConfig()) {
@@ -215,6 +596,21 @@ async function readFallbackState(): Promise<PersistedState> {
       ...defaultUserProfile(),
       ...(parsed.userProfile ?? {}),
     },
+    uiPreferences: {
+      ...defaultUiPreferences(),
+      ...(parsed.uiPreferences ?? {}),
+    },
+    portfolioSettings: {
+      ...emptyPersistedState().portfolioSettings,
+      ...(parsed.portfolioSettings ?? {}),
+    },
+    resumeQueueItems: parsed.resumeQueueItems ?? [],
+    workSessions: parsed.workSessions ?? [],
+    metaWorkFlags: parsed.metaWorkFlags ?? [],
+    bottleneckInterviews: parsed.bottleneckInterviews ?? [],
+    buildImproveDecisions: parsed.buildImproveDecisions ?? [],
+    returnRuns: parsed.returnRuns ?? [],
+    leadMetricsDaily: parsed.leadMetricsDaily ?? [],
   };
 }
 
@@ -225,7 +621,25 @@ async function writeFallbackState(state: PersistedState): Promise<void> {
 
 async function readSupabaseState(): Promise<PersistedState> {
   const supabase = getSupabaseClient();
-  const [goalsRes, milestonesRes, questsRes, blockersRes, reviewsRes, decisionsRes, artifactsRes, eventsRes] = await Promise.all([
+  const [
+    goalsRes,
+    milestonesRes,
+    questsRes,
+    blockersRes,
+    reviewsRes,
+    decisionsRes,
+    artifactsRes,
+    eventsRes,
+    portfolioSettingsRes,
+    uiPreferencesRes,
+    resumeQueueRes,
+    buildImproveRes,
+    workSessionsRes,
+    metaWorkFlagsRes,
+    bottleneckInterviewsRes,
+    returnRunsRes,
+    leadMetricsRes,
+  ] = await Promise.all([
     supabase.from("goals").select("*").order("updated_at", { ascending: false }),
     supabase.from("milestones").select("*").order("sequence", { ascending: true }),
     supabase.from("quests").select("*").order("created_at", { ascending: true }),
@@ -234,9 +648,36 @@ async function readSupabaseState(): Promise<PersistedState> {
     supabase.from("decisions").select("*").order("decided_at", { ascending: false }),
     supabase.from("artifacts").select("*").order("created_at", { ascending: false }),
     supabase.from("events").select("*").order("created_at", { ascending: false }),
+    supabase.from("portfolio_settings").select("*").limit(1).maybeSingle(),
+    supabase.from("ui_preferences").select("*").limit(1).maybeSingle(),
+    supabase.from("resume_queue_items").select("*").order("parked_at", { ascending: false }),
+    supabase.from("build_improve_decisions").select("*").order("created_at", { ascending: false }),
+    supabase.from("work_sessions").select("*").order("started_at", { ascending: true }),
+    supabase.from("meta_work_flags").select("*").order("day_key", { ascending: false }),
+    supabase.from("bottleneck_interviews").select("*").order("created_at", { ascending: false }),
+    supabase.from("return_runs").select("*").order("created_at", { ascending: false }),
+    supabase.from("lead_metrics_daily").select("*").order("day_key", { ascending: false }),
   ]);
 
-  const responses = [goalsRes, milestonesRes, questsRes, blockersRes, reviewsRes, decisionsRes, artifactsRes, eventsRes];
+  const responses = [
+    goalsRes,
+    milestonesRes,
+    questsRes,
+    blockersRes,
+    reviewsRes,
+    decisionsRes,
+    artifactsRes,
+    eventsRes,
+    portfolioSettingsRes,
+    uiPreferencesRes,
+    resumeQueueRes,
+    buildImproveRes,
+    workSessionsRes,
+    metaWorkFlagsRes,
+    bottleneckInterviewsRes,
+    returnRunsRes,
+    leadMetricsRes,
+  ];
   for (const response of responses) {
     if (response.error) {
       throw new Error(response.error.message);
@@ -253,7 +694,125 @@ async function readSupabaseState(): Promise<PersistedState> {
     artifacts: (artifactsRes.data ?? []).map(toArtifact),
     events: (eventsRes.data ?? []).map(toEvent),
     userProfile: defaultUserProfile(),
+    uiPreferences: toUiPreferences(uiPreferencesRes.data as DbRow | null),
+    portfolioSettings: toPortfolioSettings(portfolioSettingsRes.data as DbRow | null),
+    resumeQueueItems: (resumeQueueRes.data ?? []).map(toResumeQueueItem),
+    workSessions: (workSessionsRes.data ?? []).map(toWorkSession),
+    metaWorkFlags: (metaWorkFlagsRes.data ?? []).map(toMetaWorkFlag),
+    bottleneckInterviews: (bottleneckInterviewsRes.data ?? []).map(toBottleneckInterview),
+    buildImproveDecisions: (buildImproveRes.data ?? []).map(toBuildImproveDecision),
+    returnRuns: (returnRunsRes.data ?? []).map(toReturnRun),
+    leadMetricsDaily: (leadMetricsRes.data ?? []).map(toLeadMetricsDaily),
   };
+}
+
+async function readStoredState(): Promise<PersistedState> {
+  if (hasSupabaseConfig()) {
+    return readSupabaseState();
+  }
+  return readFallbackState();
+}
+async function deleteMissingRows(config: TableConfig): Promise<void> {
+  const idsToDelete = config.previousIds.filter((id) => !config.nextIds.includes(id));
+  if (!idsToDelete.length) {
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.from(config.name).delete().in("id", idsToDelete);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function upsertRows(config: TableConfig, conflictColumn = "id"): Promise<void> {
+  if (!config.serializedRows.length) {
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.from(config.name).upsert(config.serializedRows, { onConflict: conflictColumn });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function writeSupabaseState(previousState: PersistedState, nextState: PersistedState): Promise<void> {
+  const deleteOrder: TableConfig[] = [
+    { name: "work_sessions", previousIds: previousState.workSessions.map((item) => item.id), nextIds: nextState.workSessions.map((item) => item.id), serializedRows: nextState.workSessions.map(workSessionRow) },
+    { name: "return_runs", previousIds: previousState.returnRuns.map((item) => item.id), nextIds: nextState.returnRuns.map((item) => item.id), serializedRows: nextState.returnRuns.map(returnRunRow) },
+    { name: "bottleneck_interviews", previousIds: previousState.bottleneckInterviews.map((item) => item.id), nextIds: nextState.bottleneckInterviews.map((item) => item.id), serializedRows: nextState.bottleneckInterviews.map(bottleneckInterviewRow) },
+    { name: "build_improve_decisions", previousIds: previousState.buildImproveDecisions.map((item) => item.id), nextIds: nextState.buildImproveDecisions.map((item) => item.id), serializedRows: nextState.buildImproveDecisions.map(buildImproveDecisionRow) },
+    { name: "resume_queue_items", previousIds: previousState.resumeQueueItems.map((item) => item.id), nextIds: nextState.resumeQueueItems.map((item) => item.id), serializedRows: nextState.resumeQueueItems.map(resumeQueueItemRow) },
+    { name: "events", previousIds: previousState.events.map((event) => event.id), nextIds: nextState.events.map((event) => event.id), serializedRows: nextState.events.map(eventRow) },
+    { name: "artifacts", previousIds: previousState.artifacts.map((artifact) => artifact.id), nextIds: nextState.artifacts.map((artifact) => artifact.id), serializedRows: nextState.artifacts.map(artifactRow) },
+    { name: "decisions", previousIds: previousState.decisions.map((decision) => decision.id), nextIds: nextState.decisions.map((decision) => decision.id), serializedRows: nextState.decisions.map(decisionRow) },
+    { name: "reviews", previousIds: previousState.reviews.map((review) => review.id), nextIds: nextState.reviews.map((review) => review.id), serializedRows: nextState.reviews.map(reviewRow) },
+    { name: "blockers", previousIds: previousState.blockers.map((blocker) => blocker.id), nextIds: nextState.blockers.map((blocker) => blocker.id), serializedRows: nextState.blockers.map(blockerRow) },
+    { name: "quests", previousIds: previousState.quests.map((quest) => quest.id), nextIds: nextState.quests.map((quest) => quest.id), serializedRows: nextState.quests.map(questRow) },
+    { name: "milestones", previousIds: previousState.milestones.map((milestone) => milestone.id), nextIds: nextState.milestones.map((milestone) => milestone.id), serializedRows: nextState.milestones.map(milestoneRow) },
+    { name: "goals", previousIds: previousState.goals.map((goal) => goal.id), nextIds: nextState.goals.map((goal) => goal.id), serializedRows: nextState.goals.map(goalRow) },
+    { name: "meta_work_flags", previousIds: previousState.metaWorkFlags.map((flag) => flag.id), nextIds: nextState.metaWorkFlags.map((flag) => flag.id), serializedRows: nextState.metaWorkFlags.map(metaWorkFlagRow) },
+    { name: "lead_metrics_daily", previousIds: previousState.leadMetricsDaily.map((item) => item.dayKey), nextIds: nextState.leadMetricsDaily.map((item) => item.dayKey), serializedRows: nextState.leadMetricsDaily.map(leadMetricsDailyRow) },
+    { name: "portfolio_settings", previousIds: ["default"], nextIds: ["default"], serializedRows: [portfolioSettingsRow(nextState.portfolioSettings)] },
+    { name: "ui_preferences", previousIds: ["default"], nextIds: ["default"], serializedRows: [uiPreferencesRow(nextState.uiPreferences)] },
+  ];
+
+  for (const table of deleteOrder) {
+    if (table.name === "lead_metrics_daily") {
+      const idsToDelete = table.previousIds.filter((id) => !table.nextIds.includes(id));
+      if (!idsToDelete.length) {
+        continue;
+      }
+      const supabase = getSupabaseClient();
+      const { error } = await supabase.from(table.name).delete().in("day_key", idsToDelete);
+      if (error) {
+        throw new Error(error.message);
+      }
+      continue;
+    }
+    await deleteMissingRows(table);
+  }
+
+  const upsertOrder: Array<TableConfig & { conflictColumn?: string }> = [
+    { name: "goals", previousIds: previousState.goals.map((goal) => goal.id), nextIds: nextState.goals.map((goal) => goal.id), serializedRows: nextState.goals.map(goalRow) },
+    { name: "milestones", previousIds: previousState.milestones.map((milestone) => milestone.id), nextIds: nextState.milestones.map((milestone) => milestone.id), serializedRows: nextState.milestones.map(milestoneRow) },
+    { name: "quests", previousIds: previousState.quests.map((quest) => quest.id), nextIds: nextState.quests.map((quest) => quest.id), serializedRows: nextState.quests.map(questRow) },
+    { name: "blockers", previousIds: previousState.blockers.map((blocker) => blocker.id), nextIds: nextState.blockers.map((blocker) => blocker.id), serializedRows: nextState.blockers.map(blockerRow) },
+    { name: "reviews", previousIds: previousState.reviews.map((review) => review.id), nextIds: nextState.reviews.map((review) => review.id), serializedRows: nextState.reviews.map(reviewRow) },
+    { name: "decisions", previousIds: previousState.decisions.map((decision) => decision.id), nextIds: nextState.decisions.map((decision) => decision.id), serializedRows: nextState.decisions.map(decisionRow) },
+    { name: "artifacts", previousIds: previousState.artifacts.map((artifact) => artifact.id), nextIds: nextState.artifacts.map((artifact) => artifact.id), serializedRows: nextState.artifacts.map(artifactRow) },
+    { name: "events", previousIds: previousState.events.map((event) => event.id), nextIds: nextState.events.map((event) => event.id), serializedRows: nextState.events.map(eventRow) },
+    { name: "portfolio_settings", previousIds: ["default"], nextIds: ["default"], serializedRows: [portfolioSettingsRow(nextState.portfolioSettings)] },
+    { name: "ui_preferences", previousIds: ["default"], nextIds: ["default"], serializedRows: [uiPreferencesRow(nextState.uiPreferences)] },
+    { name: "resume_queue_items", previousIds: previousState.resumeQueueItems.map((item) => item.id), nextIds: nextState.resumeQueueItems.map((item) => item.id), serializedRows: nextState.resumeQueueItems.map(resumeQueueItemRow) },
+    { name: "build_improve_decisions", previousIds: previousState.buildImproveDecisions.map((item) => item.id), nextIds: nextState.buildImproveDecisions.map((item) => item.id), serializedRows: nextState.buildImproveDecisions.map(buildImproveDecisionRow) },
+    { name: "work_sessions", previousIds: previousState.workSessions.map((item) => item.id), nextIds: nextState.workSessions.map((item) => item.id), serializedRows: nextState.workSessions.map(workSessionRow) },
+    { name: "bottleneck_interviews", previousIds: previousState.bottleneckInterviews.map((item) => item.id), nextIds: nextState.bottleneckInterviews.map((item) => item.id), serializedRows: nextState.bottleneckInterviews.map(bottleneckInterviewRow) },
+    { name: "return_runs", previousIds: previousState.returnRuns.map((item) => item.id), nextIds: nextState.returnRuns.map((item) => item.id), serializedRows: nextState.returnRuns.map(returnRunRow) },
+    { name: "meta_work_flags", previousIds: previousState.metaWorkFlags.map((flag) => flag.id), nextIds: nextState.metaWorkFlags.map((flag) => flag.id), serializedRows: nextState.metaWorkFlags.map(metaWorkFlagRow) },
+    { name: "lead_metrics_daily", previousIds: previousState.leadMetricsDaily.map((item) => item.dayKey), nextIds: nextState.leadMetricsDaily.map((item) => item.dayKey), serializedRows: nextState.leadMetricsDaily.map(leadMetricsDailyRow), conflictColumn: "day_key" },
+  ];
+
+  for (const table of upsertOrder) {
+    await upsertRows(table, table.conflictColumn ?? "id");
+  }
+}
+
+async function writeStoredState(previousState: PersistedState, nextState: PersistedState): Promise<void> {
+  if (hasSupabaseConfig()) {
+    await writeSupabaseState(previousState, nextState);
+    return;
+  }
+
+  await writeFallbackState(nextState);
+}
+
+async function mutateState<T>(mutator: (state: PersistedState) => { state: PersistedState; value: T }): Promise<T> {
+  const previousState = await readStoredState();
+  const { state, value } = mutator(previousState);
+  await writeStoredState(previousState, state);
+  return value;
 }
 
 export async function getAppState(): Promise<AppState> {
@@ -262,397 +821,117 @@ export async function getAppState(): Promise<AppState> {
     return enrichState(emptyPersistedState());
   }
 
-  const state = hasSupabaseConfig() ? await readSupabaseState() : await readFallbackState();
+  const state = await readStoredState();
   return enrichState(state);
 }
-
-async function pauseOtherGoals(goalId: string): Promise<void> {
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    state.goals = state.goals.map((goal) =>
-      goal.id === goalId || goal.status !== "active"
-        ? goal
-        : {
-            ...goal,
-            status: "paused",
-            updatedAt: nowIso(),
-          },
-    );
-    await writeFallbackState(state);
-    return;
-  }
-
-  const supabase = getSupabaseClient();
-  const { error } = await supabase
-    .from("goals")
-    .update({ status: "paused", updated_at: nowIso() })
-    .neq("id", goalId)
-    .eq("status", "active");
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
-async function insertSupabaseEvents(events: QuestEvent[]): Promise<void> {
-  if (!events.length) {
-    return;
-  }
-
-  const supabase = getSupabaseClient();
-  const { error } = await supabase.from("events").insert(
-    events.map((event) => ({
-      id: event.id,
-      goal_id: event.goalId,
-      entity_type: event.entityType,
-      entity_id: event.entityId,
-      type: event.type,
-      payload: event.payload,
-      created_at: event.createdAt,
-    })),
-  );
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
 export async function saveGoal(input: GoalInput): Promise<Goal> {
-  const payload = {
-    title: input.title,
-    description: input.description,
-    why: input.why,
-    deadline: input.deadline || null,
-    success_criteria: input.successCriteria,
-    current_state: input.currentState,
-    constraints: input.constraints,
-    concerns: input.concerns,
-    today_capacity: input.todayCapacity,
-    status: input.status,
-    updated_at: nowIso(),
-  };
-
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    const existing = input.id ? state.goals.find((goal) => goal.id === input.id) : null;
-    const goal: Goal = existing
-      ? {
-          ...existing,
-          title: input.title,
-          description: input.description,
-          why: input.why,
-          deadline: input.deadline || null,
-          successCriteria: input.successCriteria,
-          currentState: input.currentState,
-          constraints: input.constraints,
-          concerns: input.concerns,
-          todayCapacity: input.todayCapacity,
-          status: input.status,
-          updatedAt: nowIso(),
-        }
-      : {
-          id: makeId(),
-          title: input.title,
-          description: input.description,
-          why: input.why,
-          deadline: input.deadline || null,
-          successCriteria: input.successCriteria,
-          currentState: input.currentState,
-          constraints: input.constraints,
-          concerns: input.concerns,
-          todayCapacity: input.todayCapacity,
-          status: input.status,
-          createdAt: nowIso(),
-          updatedAt: nowIso(),
-        };
-
-    state.goals = [goal, ...state.goals.filter((item) => item.id !== goal.id)].map((item) =>
-      goal.status === "active" && item.id !== goal.id && item.status === "active"
-        ? { ...item, status: "paused", updatedAt: nowIso() }
-        : item,
-    );
-    state.events.push(
-      buildEvent(goal.id, "goal", goal.id, existing ? "goal_refined" : "goal_created", {
-        title: goal.title,
-        refined: input.refined ?? false,
-      }),
-    );
-    await writeFallbackState(state);
-    return goal;
-  }
-
-  const supabase = getSupabaseClient();
-  const response = input.id
-    ? await supabase.from("goals").update(payload).eq("id", input.id).select("*").single()
-    : await supabase.from("goals").insert(payload).select("*").single();
-
-  if (response.error || !response.data) {
-    throw new Error(response.error?.message ?? "Failed to save goal.");
-  }
-
-  const goal = toGoal(response.data);
-  if (goal.status === "active") {
-    await pauseOtherGoals(goal.id);
-  }
-  await insertSupabaseEvents([
-    buildEvent(goal.id, "goal", goal.id, input.id ? "goal_refined" : "goal_created", {
-      title: goal.title,
-      refined: input.refined ?? false,
-    }),
-  ]);
-  return goal;
+  return mutateState((state) => {
+    const result = saveGoalInState(state, input);
+    return { state: result.state, value: result.goal };
+  });
 }
 
 export async function replaceMap(input: MapInput): Promise<void> {
-  const now = nowIso();
-  const milestoneRecords = input.milestones.map((milestone: MapDraftMilestone, index) => ({
-    id: makeId(),
-    goalId: input.goalId,
-    title: milestone.title,
-    description: milestone.description,
-    sequence: index + 1,
-    targetDate: milestone.targetDate || null,
-    status: index === 0 ? ("active" as const) : ("planned" as const),
-    createdAt: now,
+  return mutateState((state) => ({
+    state: replaceMapInState(state, input),
+    value: undefined,
   }));
-
-  const questRecords = milestoneRecords.flatMap((milestone, milestoneIndex) => {
-    const source = input.milestones[milestoneIndex];
-    return source.quests.map((quest, questIndex) => ({
-      id: makeId(),
-      goalId: input.goalId,
-      milestoneId: milestone.id,
-      title: quest.title,
-      description: quest.description,
-      priority: quest.priority,
-      status: milestoneIndex === 0 && questIndex === 0 ? ("ready" as const) : ("planned" as const),
-      dueDate: quest.dueDate || null,
-      estimatedMinutes: quest.estimatedMinutes ?? null,
-      questType: quest.questType,
-      createdAt: now,
-      updatedAt: now,
-    }));
-  });
-
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    state.milestones = [...state.milestones.filter((milestone) => milestone.goalId !== input.goalId), ...milestoneRecords];
-    state.quests = [...state.quests.filter((quest) => quest.goalId !== input.goalId), ...questRecords];
-    state.events.push(
-      ...milestoneRecords.map((milestone) => buildEvent(input.goalId, "milestone", milestone.id, "milestone_defined", { title: milestone.title })),
-      ...questRecords.map((quest) => buildEvent(input.goalId, "quest", quest.id, "quest_created", { title: quest.title })),
-      buildEvent(input.goalId, "system", input.goalId, "route_changed", {
-        routeSummary: input.routeSummary,
-        mode: input.mode,
-      }),
-    );
-    await writeFallbackState(state);
-    return;
-  }
-
-  const supabase = getSupabaseClient();
-  const deleteQuests = await supabase.from("quests").delete().eq("goal_id", input.goalId);
-  if (deleteQuests.error) {
-    throw new Error(deleteQuests.error.message);
-  }
-  const deleteMilestones = await supabase.from("milestones").delete().eq("goal_id", input.goalId);
-  if (deleteMilestones.error) {
-    throw new Error(deleteMilestones.error.message);
-  }
-
-  if (milestoneRecords.length) {
-    const { error } = await supabase.from("milestones").insert(
-      milestoneRecords.map((milestone) => ({
-        id: milestone.id,
-        goal_id: milestone.goalId,
-        title: milestone.title,
-        description: milestone.description,
-        sequence: milestone.sequence,
-        target_date: milestone.targetDate,
-        status: milestone.status,
-        created_at: milestone.createdAt,
-      })),
-    );
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  if (questRecords.length) {
-    const { error } = await supabase.from("quests").insert(
-      questRecords.map((quest) => ({
-        id: quest.id,
-        goal_id: quest.goalId,
-        milestone_id: quest.milestoneId,
-        title: quest.title,
-        description: quest.description,
-        priority: quest.priority,
-        status: quest.status,
-        due_date: quest.dueDate,
-        estimated_minutes: quest.estimatedMinutes,
-        quest_type: quest.questType,
-        created_at: quest.createdAt,
-        updated_at: quest.updatedAt,
-      })),
-    );
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  await insertSupabaseEvents([
-    ...milestoneRecords.map((milestone) => buildEvent(input.goalId, "milestone", milestone.id, "milestone_defined", { title: milestone.title })),
-    ...questRecords.map((quest) => buildEvent(input.goalId, "quest", quest.id, "quest_created", { title: quest.title })),
-    buildEvent(input.goalId, "system", input.goalId, "route_changed", {
-      routeSummary: input.routeSummary,
-      mode: input.mode,
-    }),
-  ]);
 }
 
 export async function updateQuestStatus(questId: string, status: Quest["status"]): Promise<Quest> {
-  const eventType = status === "in_progress" ? "quest_started" : status === "completed" ? "quest_completed" : "quest_updated";
-
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    const existing = state.quests.find((quest) => quest.id === questId);
-    if (!existing) {
-      throw new Error("Quest not found.");
-    }
-    const quest = { ...existing, status, updatedAt: nowIso() };
-    state.quests = state.quests.map((item) => (item.id === questId ? quest : item));
-    state.events.push(buildEvent(quest.goalId, "quest", quest.id, eventType, { status }));
-    await writeFallbackState(state);
-    return quest;
-  }
-
-  const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from("quests")
-    .update({ status, updated_at: nowIso() })
-    .eq("id", questId)
-    .select("*")
-    .single();
-  if (error || !data) {
-    throw new Error(error?.message ?? "Failed to update quest.");
-  }
-  const quest = toQuest(data);
-  await insertSupabaseEvents([buildEvent(quest.goalId, "quest", quest.id, eventType, { status })]);
-  return quest;
+  return mutateState((state) => {
+    const result = updateQuestStatusInState(state, questId, status);
+    return { state: result.state, value: result.quest };
+  });
 }
 
 export async function createBlocker(input: BlockerInput): Promise<Blocker> {
-  const blocker: Blocker = {
-    id: makeId(),
-    goalId: input.goalId,
-    relatedQuestId: input.relatedQuestId ?? null,
-    title: input.title,
-    description: input.description,
-    blockerType: input.blockerType,
-    severity: input.severity,
-    status: input.status,
-    suggestedNextStep: input.suggestedNextStep,
-    detectedAt: nowIso(),
-  };
-
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    state.blockers = [blocker, ...state.blockers];
-    state.events.push(buildEvent(blocker.goalId, "blocker", blocker.id, "blocker_detected", { title: blocker.title }));
-    await writeFallbackState(state);
-    return blocker;
-  }
-
-  const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from("blockers")
-    .insert({
-      id: blocker.id,
-      goal_id: blocker.goalId,
-      related_quest_id: blocker.relatedQuestId,
-      title: blocker.title,
-      description: blocker.description,
-      blocker_type: blocker.blockerType,
-      severity: blocker.severity,
-      status: blocker.status,
-      suggested_next_step: blocker.suggestedNextStep,
-      detected_at: blocker.detectedAt,
-    })
-    .select("*")
-    .single();
-  if (error || !data) {
-    throw new Error(error?.message ?? "Failed to create blocker.");
-  }
-  const saved = toBlocker(data);
-  await insertSupabaseEvents([buildEvent(saved.goalId, "blocker", saved.id, "blocker_detected", { title: saved.title })]);
-  return saved;
+  return mutateState((state) => {
+    const result = createBlockerInState(state, input);
+    return { state: result.state, value: result.blocker };
+  });
 }
 
 export async function createReview(input: ReviewInput): Promise<Review> {
-  const review: Review = {
-    id: makeId(),
-    goalId: input.goalId,
-    periodStart: input.periodStart,
-    periodEnd: input.periodEnd,
-    summary: input.summary,
-    learnings: input.learnings,
-    rerouteNote: input.rerouteNote,
-    nextFocus: input.nextFocus,
-    createdAt: nowIso(),
-  };
-
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    state.reviews = [review, ...state.reviews];
-    state.events.push(buildEvent(review.goalId, "review", review.id, "weekly_review_done", { summary: review.summary }));
-    if (review.rerouteNote) {
-      state.events.push(buildEvent(review.goalId, "system", review.goalId, "route_changed", { rerouteNote: review.rerouteNote }));
-    }
-    await writeFallbackState(state);
-    return review;
-  }
-
-  const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from("reviews")
-    .insert({
-      id: review.id,
-      goal_id: review.goalId,
-      period_start: review.periodStart,
-      period_end: review.periodEnd,
-      summary: review.summary,
-      learnings: review.learnings,
-      reroute_note: review.rerouteNote,
-      next_focus: review.nextFocus,
-      created_at: review.createdAt,
-    })
-    .select("*")
-    .single();
-  if (error || !data) {
-    throw new Error(error?.message ?? "Failed to create review.");
-  }
-  const saved = toReview(data);
-  const events = [buildEvent(saved.goalId, "review", saved.id, "weekly_review_done", { summary: saved.summary })];
-  if (saved.rerouteNote) {
-    events.push(buildEvent(saved.goalId, "system", saved.goalId, "route_changed", { rerouteNote: saved.rerouteNote }));
-  }
-  await insertSupabaseEvents(events);
-  return saved;
+  return mutateState((state) => {
+    const result = createReviewInState(state, input);
+    return { state: result.state, value: result.review };
+  });
 }
 
 export async function recordTodayPlan(goalId: string, plan: TodayPlan): Promise<void> {
-  const event = buildEvent(goalId, "system", goalId, "today_plan_generated", {
-    mode: plan.mode,
-    theme: plan.theme,
-    quests: plan.quests.map((quest) => quest.title),
+  return mutateState((state) => ({
+    state: recordTodayPlanInState(state, goalId, plan),
+    value: undefined,
+  }));
+}
+
+export async function updatePortfolioSettings(input: PortfolioSettingsInput): Promise<PortfolioSettings> {
+  return mutateState((state) => {
+    const result = updatePortfolioSettingsInState(state, input);
+    return { state: result.state, value: result.portfolioSettings };
   });
+}
 
-  if (!hasSupabaseConfig()) {
-    const state = await readFallbackState();
-    state.events.push(event);
-    await writeFallbackState(state);
-    return;
-  }
+export async function updateUiPreferences(input: UiPreferencesInput): Promise<UiPreferences> {
+  return mutateState((state) => {
+    const result = updateUiPreferencesInState(state, input);
+    return { state: result.state, value: result.uiPreferences };
+  });
+}
 
-  await insertSupabaseEvents([event]);
+export async function selectFocusGoal(input: FocusGoalInput): Promise<Goal> {
+  return mutateState((state) => {
+    const result = selectFocusGoalInState(state, input);
+    return { state: result.state, value: result.goal };
+  });
+}
+
+export async function parkGoal(input: ParkGoalInput): Promise<Goal> {
+  return mutateState((state) => {
+    const result = parkGoalInState(state, input);
+    return { state: result.state, value: result.goal };
+  });
+}
+
+export async function resumeGoal(input: ResumeGoalInput): Promise<Goal> {
+  return mutateState((state) => {
+    const result = resumeGoalInState(state, input);
+    return { state: result.state, value: result.goal };
+  });
+}
+
+export async function recordBuildImproveDecision(input: BuildImproveCheckInput): Promise<BuildImproveDecision> {
+  return mutateState((state) => {
+    const result = recordBuildImproveDecisionInState(state, input);
+    return { state: result.state, value: result.decision };
+  });
+}
+
+export async function startWorkSession(input: WorkSessionStartInput): Promise<WorkSession> {
+  return mutateState((state) => {
+    const result = startWorkSessionInState(state, input);
+    return { state: result.state, value: result.session };
+  });
+}
+
+export async function finishWorkSession(input: WorkSessionFinishInput): Promise<WorkSession> {
+  return mutateState((state) => {
+    const result = finishWorkSessionInState(state, input);
+    return { state: result.state, value: result.session };
+  });
+}
+
+export async function recordReturnInterview(input: ReturnInterviewInput): Promise<BottleneckInterview> {
+  return mutateState((state) => {
+    const result = recordReturnInterviewInState(state, input);
+    return { state: result.state, value: result.interview };
+  });
+}
+
+export async function recordReturnRun(input: ReturnRunInput): Promise<ReturnRun> {
+  return mutateState((state) => {
+    const result = recordReturnRunInState(state, input);
+    return { state: result.state, value: result.returnRun };
+  });
 }

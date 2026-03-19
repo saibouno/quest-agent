@@ -1,30 +1,40 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
+import { DisclosureSection } from "@/components/shared/disclosure-section";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
+import { getCopy, getLabel, localizeRuntimeError } from "@/lib/quest-agent/copy";
 import type { MapDraft } from "@/lib/quest-agent/types";
 
 export function MapPageClient() {
   const router = useRouter();
   const { state, aiEnabled, clientStorageMode, generateMap, replaceMap } = useQuestAgent();
+  const locale = state.uiPreferences.locale;
+  const copy = getCopy(locale).map;
+  const commonCopy = getCopy(locale).common;
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<MapDraft | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const storedQuestCount = useMemo(
+    () => state.currentMilestones.reduce((sum, milestone) => sum + state.currentQuests.filter((quest) => quest.milestoneId === milestone.id).length, 0),
+    [state.currentMilestones, state.currentQuests],
+  );
+
   if (!state.currentGoal) {
     return (
       <SectionCard>
-        <p className="eyebrow">Quest Map</p>
-        <h1>Complete Quest Intake first.</h1>
-        <p className="muted">You need one active goal before the agent can draft a route.</p>
-        <Link className="button" href="/intake">
-          Back to Quest Intake
+        <p className="eyebrow">{copy.page}</p>
+        <h1>{copy.noFocusTitle}</h1>
+        <p className="muted">{copy.noFocusBody}</p>
+        <Link className="button" href="/portfolio">
+          {copy.openPortfolio}
         </Link>
       </SectionCard>
     );
@@ -84,11 +94,12 @@ export function MapPageClient() {
           currentState: state.currentGoal!.currentState,
           constraints: state.currentGoal!.constraints,
           concerns: state.currentGoal!.concerns,
+          locale,
         });
         setDraft(nextDraft);
-        setMessage(nextDraft.mode === "ai" ? "AI drafted a route." : "Heuristic mode drafted a route.");
+        setMessage(nextDraft.mode === "ai" ? copy.messages.generatedAi : copy.messages.generatedHeuristic);
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Quest Map generation failed.");
+        setError(localizeRuntimeError(locale, nextError, copy.errors.generate));
       }
     });
   }
@@ -107,13 +118,13 @@ export function MapPageClient() {
           milestones: draft.milestones,
           mode: draft.mode,
         });
-        setMessage("Quest Map saved. Next, decide today's route.");
+        setMessage(copy.messages.saved);
         if (clientStorageMode === "server-backed") {
           router.refresh();
         }
         router.push("/today");
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Failed to save Quest Map.");
+        setError(localizeRuntimeError(locale, nextError, copy.errors.save));
       }
     });
   }
@@ -122,16 +133,16 @@ export function MapPageClient() {
     <div className="page-stack">
       <section className="hero-panel surface">
         <div>
-          <p className="eyebrow">Quest Map</p>
-          <h1>Break the goal into milestones and quests.</h1>
-          <p className="lead">This does not need to be perfect. Build a route you can start, then improve it through review and reroute.</p>
+          <p className="eyebrow">{copy.page}</p>
+          <h1>{copy.heroTitle}</h1>
+          {copy.lead ? <p className="lead">{copy.lead}</p> : null}
         </div>
         <div className="hero-panel__actions">
-          <button className="button" onClick={handleGenerate} disabled={isPending} type="button">
-            {aiEnabled ? "Generate with AI" : "Generate heuristically"}
+          <button className="button button--secondary" onClick={handleGenerate} disabled={isPending} type="button">
+            {aiEnabled ? copy.generateAi : copy.generateHeuristic}
           </button>
-          <button className="button button--secondary" onClick={handleSave} disabled={isPending || !draft} type="button">
-            Save Route
+          <button className="button" onClick={handleSave} disabled={isPending || !draft} type="button">
+            {copy.saveRoute}
           </button>
         </div>
       </section>
@@ -139,132 +150,150 @@ export function MapPageClient() {
       {message ? <p className="feedback feedback--ok">{message}</p> : null}
       {error ? <p className="feedback feedback--error">{error}</p> : null}
 
-      <div className="two-column two-column--wide">
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">Stored Route</p>
-              <h2>{state.currentGoal.title}</h2>
-            </div>
-            <StatusPill label={state.currentGoal.status} />
+      <SectionCard>
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">{copy.storedRoute}</p>
+            <h2>{state.currentGoal.title}</h2>
+            <p className="muted">{copy.storedLead}</p>
           </div>
+          <StatusPill label={state.currentGoal.status} />
+        </div>
+        <div className="pill-row">
+          <span className="pill">{copy.milestoneLabel} {state.currentMilestones.length}</span>
+          <span className="pill">{copy.fields.questTitle} {storedQuestCount}</span>
+        </div>
+      </SectionCard>
 
-          {state.currentMilestones.length ? (
-            <div className="stack-lg">
-              {state.currentMilestones.map((milestone) => {
-                const quests = state.currentQuests.filter((quest) => quest.milestoneId === milestone.id);
-                return (
-                  <div className="milestone-card" key={milestone.id}>
-                    <div className="milestone-card__header">
-                      <div>
-                        <p className="eyebrow">Milestone {milestone.sequence}</p>
-                        <h3>{milestone.title}</h3>
-                      </div>
-                      <StatusPill label={milestone.status} />
+      <DisclosureSection
+        eyebrow={copy.storedRoute}
+        title={copy.storedRoute}
+        summary={state.currentMilestones.length ? `${copy.milestoneLabel} ${state.currentMilestones.length} ・ ${copy.fields.questTitle} ${storedQuestCount}` : copy.emptyStored}
+        initialOpen={false}
+        openLabel={commonCopy.showDetails}
+        closeLabel={commonCopy.hideDetails}
+      >
+        {state.currentMilestones.length ? (
+          <div className="stack-lg">
+            {state.currentMilestones.map((milestone) => {
+              const quests = state.currentQuests.filter((quest) => quest.milestoneId === milestone.id);
+              return (
+                <div className="milestone-card" key={milestone.id}>
+                  <div className="milestone-card__header">
+                    <div>
+                      <p className="eyebrow">{copy.milestoneLabel} {milestone.sequence}</p>
+                      <h3>{milestone.title}</h3>
                     </div>
-                    <p className="muted">{milestone.description}</p>
-                    <div className="quest-list">
-                      {quests.map((quest) => (
-                        <div className="quest-row" key={quest.id}>
-                          <div>
-                            <strong>{quest.title}</strong>
-                            <p className="muted">{quest.description}</p>
-                          </div>
-                          <div className="pill-row">
-                            <StatusPill label={quest.priority} />
-                            <StatusPill label={quest.status} />
-                          </div>
+                    <StatusPill label={milestone.status} />
+                  </div>
+                  <p className="muted">{milestone.description}</p>
+                  <div className="quest-list">
+                    {quests.map((quest) => (
+                      <div className="quest-row" key={quest.id}>
+                        <div>
+                          <strong>{quest.title}</strong>
+                          <p className="muted">{quest.description}</p>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="muted">No saved route yet. Generate a draft and save it.</p>
-          )}
-        </SectionCard>
-
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">Editable Draft</p>
-              <h2>Tune the route before saving</h2>
-            </div>
-          </div>
-
-          {draft ? (
-            <div className="stack-lg">
-              <label className="field field--full">
-                <span>Route Summary</span>
-                <textarea className="textarea" rows={3} value={draft.routeSummary} onChange={(event) => setDraft((current) => (current ? { ...current, routeSummary: event.target.value } : current))} />
-              </label>
-
-              {draft.milestones.map((milestone, milestoneIndex) => (
-                <div className="milestone-card" key={milestone.tempId}>
-                  <div className="form-grid">
-                    <label className="field">
-                      <span>Milestone Title</span>
-                      <input className="input" value={milestone.title} onChange={(event) => updateMilestone(milestoneIndex, "title", event.target.value)} />
-                    </label>
-                    <label className="field">
-                      <span>Target Date</span>
-                      <input className="input" type="date" value={milestone.targetDate ?? ""} onChange={(event) => updateMilestone(milestoneIndex, "targetDate", event.target.value)} />
-                    </label>
-                    <label className="field field--full">
-                      <span>Description</span>
-                      <textarea className="textarea" rows={3} value={milestone.description} onChange={(event) => updateMilestone(milestoneIndex, "description", event.target.value)} />
-                    </label>
-                  </div>
-
-                  <div className="stack-md">
-                    {milestone.quests.map((quest, questIndex) => (
-                      <div className="quest-edit-card" key={`${milestone.tempId}-${questIndex}`}>
-                        <label className="field field--full">
-                          <span>Quest Title</span>
-                          <input className="input" value={quest.title} onChange={(event) => updateQuest(milestoneIndex, questIndex, "title", event.target.value)} />
-                        </label>
-                        <label className="field field--full">
-                          <span>Description</span>
-                          <textarea className="textarea" rows={2} value={quest.description} onChange={(event) => updateQuest(milestoneIndex, questIndex, "description", event.target.value)} />
-                        </label>
-                        <div className="form-grid form-grid--tight">
-                          <label className="field">
-                            <span>Priority</span>
-                            <select className="input" value={quest.priority} onChange={(event) => updateQuest(milestoneIndex, questIndex, "priority", event.target.value)}>
-                              <option value="high">high</option>
-                              <option value="medium">medium</option>
-                              <option value="low">low</option>
-                            </select>
-                          </label>
-                          <label className="field">
-                            <span>Type</span>
-                            <select className="input" value={quest.questType} onChange={(event) => updateQuest(milestoneIndex, questIndex, "questType", event.target.value)}>
-                              <option value="main">main</option>
-                              <option value="side">side</option>
-                            </select>
-                          </label>
-                          <label className="field">
-                            <span>Minutes</span>
-                            <input className="input" type="number" min={5} step={5} value={quest.estimatedMinutes ?? ""} onChange={(event) => updateQuest(milestoneIndex, questIndex, "estimatedMinutes", event.target.value)} />
-                          </label>
-                          <label className="field">
-                            <span>Due Date</span>
-                            <input className="input" type="date" value={quest.dueDate ?? ""} onChange={(event) => updateQuest(milestoneIndex, questIndex, "dueDate", event.target.value)} />
-                          </label>
+                        <div className="pill-row">
+                          <StatusPill label={quest.priority} />
+                          <StatusPill label={quest.status} />
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="muted">Generate a route draft to edit milestones and quests here.</p>
-          )}
-        </SectionCard>
-      </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="muted">{copy.emptyStored}</p>
+        )}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.draftTitle}
+        title={copy.draftLead}
+        summary={draft ? draft.routeSummary : copy.emptyDraft}
+        initialOpen={Boolean(draft)}
+        openLabel={commonCopy.showDetails}
+        closeLabel={commonCopy.hideDetails}
+        aside={draft ? <StatusPill label={draft.mode} /> : null}
+      >
+        {draft ? (
+          <div className="stack-lg">
+            <label className="field field--full">
+              <span>{copy.fields.routeSummary}</span>
+              <textarea
+                className="textarea"
+                rows={3}
+                value={draft.routeSummary}
+                onChange={(event) => setDraft((current) => (current ? { ...current, routeSummary: event.target.value } : current))}
+              />
+            </label>
+
+            {draft.milestones.map((milestone, milestoneIndex) => (
+              <div className="milestone-card" key={milestone.tempId}>
+                <div className="form-grid">
+                  <label className="field">
+                    <span>{copy.fields.milestoneTitle}</span>
+                    <input className="input" value={milestone.title} onChange={(event) => updateMilestone(milestoneIndex, "title", event.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>{copy.fields.targetDate}</span>
+                    <input className="input" type="date" value={milestone.targetDate ?? ""} onChange={(event) => updateMilestone(milestoneIndex, "targetDate", event.target.value)} />
+                  </label>
+                  <label className="field field--full">
+                    <span>{copy.fields.description}</span>
+                    <textarea className="textarea" rows={3} value={milestone.description} onChange={(event) => updateMilestone(milestoneIndex, "description", event.target.value)} />
+                  </label>
+                </div>
+
+                <div className="stack-md">
+                  {milestone.quests.map((quest, questIndex) => (
+                    <div className="quest-edit-card" key={`${milestone.tempId}-${questIndex}`}>
+                      <label className="field field--full">
+                        <span>{copy.fields.questTitle}</span>
+                        <input className="input" value={quest.title} onChange={(event) => updateQuest(milestoneIndex, questIndex, "title", event.target.value)} />
+                      </label>
+                      <label className="field field--full">
+                        <span>{copy.fields.description}</span>
+                        <textarea className="textarea" rows={2} value={quest.description} onChange={(event) => updateQuest(milestoneIndex, questIndex, "description", event.target.value)} />
+                      </label>
+                      <div className="form-grid form-grid--tight">
+                        <label className="field">
+                          <span>{copy.fields.priority}</span>
+                          <select className="input" value={quest.priority} onChange={(event) => updateQuest(milestoneIndex, questIndex, "priority", event.target.value)}>
+                            <option value="high">{getLabel(locale, "high")}</option>
+                            <option value="medium">{getLabel(locale, "medium")}</option>
+                            <option value="low">{getLabel(locale, "low")}</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>{copy.fields.type}</span>
+                          <select className="input" value={quest.questType} onChange={(event) => updateQuest(milestoneIndex, questIndex, "questType", event.target.value)}>
+                            <option value="main">{getLabel(locale, "main")}</option>
+                            <option value="side">{getLabel(locale, "side")}</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>{copy.fields.minutes}</span>
+                          <input className="input" type="number" min={5} step={5} value={quest.estimatedMinutes ?? ""} onChange={(event) => updateQuest(milestoneIndex, questIndex, "estimatedMinutes", event.target.value)} />
+                        </label>
+                        <label className="field">
+                          <span>{copy.fields.dueDate}</span>
+                          <input className="input" type="date" value={quest.dueDate ?? ""} onChange={(event) => updateQuest(milestoneIndex, questIndex, "dueDate", event.target.value)} />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">{copy.emptyDraft}</p>
+        )}
+      </DisclosureSection>
     </div>
   );
 }

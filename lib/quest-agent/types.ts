@@ -1,5 +1,42 @@
-export const goalStatuses = ["draft", "active", "paused", "completed", "abandoned"] as const;
+﻿export const goalStatuses = ["draft", "active", "paused", "completed", "abandoned"] as const;
 export type GoalStatus = (typeof goalStatuses)[number];
+
+export const stopModes = ["hold", "shrink", "cancel"] as const;
+export type StopMode = (typeof stopModes)[number];
+
+export const resumeTriggerTypes = ["manual", "date", "condition"] as const;
+export type ResumeTriggerType = (typeof resumeTriggerTypes)[number];
+
+export const resumeQueueStatuses = ["waiting", "resumed"] as const;
+export type ResumeQueueStatus = (typeof resumeQueueStatuses)[number];
+
+export const sessionCategories = ["main", "improve", "admin", "other"] as const;
+export type SessionCategory = (typeof sessionCategories)[number];
+
+export const mainConnectionKinds = ["direct", "supporting", "unclear"] as const;
+export type MainConnectionKind = (typeof mainConnectionKinds)[number];
+
+export const buildImproveModes = ["build", "improve", "avoidant"] as const;
+export type BuildImproveMode = (typeof buildImproveModes)[number];
+
+export const metaWorkFlagTypes = [
+  "main_work_absent",
+  "meta_overweight",
+  "start_delay",
+  "switch_density",
+  "unfinished_chain",
+  "uncertainty_loop",
+] as const;
+export type MetaWorkFlagType = (typeof metaWorkFlagTypes)[number];
+
+export const bottleneckTypes = ["capability", "opportunity", "motivation", "unclear"] as const;
+export type BottleneckType = (typeof bottleneckTypes)[number];
+
+export const returnDecisions = ["fight", "detour", "hold", "retreat"] as const;
+export type ReturnDecision = (typeof returnDecisions)[number];
+
+export const uiLocales = ["ja", "en"] as const;
+export type UiLocale = (typeof uiLocales)[number];
 
 export const milestoneStatuses = ["planned", "active", "completed"] as const;
 export type MilestoneStatus = (typeof milestoneStatuses)[number];
@@ -51,6 +88,10 @@ export interface UserProfile {
   worksBestTime: string;
   needsOptionComparison: boolean;
   restartsBetterWithTinyActions: boolean;
+}
+
+export interface UiPreferences {
+  locale: UiLocale;
 }
 
 export interface Goal {
@@ -149,6 +190,97 @@ export interface QuestEvent {
   createdAt: string;
 }
 
+export interface PortfolioSettings {
+  wipLimit: number;
+  focusGoalId: string | null;
+  updatedAt: string;
+}
+
+export interface ResumeQueueItem {
+  id: string;
+  goalId: string;
+  stopMode: StopMode;
+  parkedAt: string;
+  reason: string;
+  parkingNote: string;
+  nextRestartStep: string;
+  resumeTriggerType: ResumeTriggerType;
+  resumeTriggerText: string;
+  status: ResumeQueueStatus;
+}
+
+export interface WorkSession {
+  id: string;
+  goalId: string;
+  questId: string | null;
+  gateDecisionId: string | null;
+  category: SessionCategory;
+  plannedMinutes: number;
+  startedAt: string;
+  endedAt: string | null;
+  artifactNote: string;
+}
+
+export interface BuildImproveDecision {
+  id: string;
+  goalId: string;
+  questId: string | null;
+  category: SessionCategory;
+  mainConnection: MainConnectionKind;
+  artifactCommitment: string;
+  timeboxMinutes: number;
+  doneWhen: string;
+  mode: BuildImproveMode;
+  rationale: string;
+  createdAt: string;
+}
+
+export interface MetaWorkFlag {
+  id: string;
+  goalId: string | null;
+  dayKey: string;
+  flagType: MetaWorkFlagType;
+  message: string;
+  createdAt: string;
+}
+
+export interface BottleneckInterview {
+  id: string;
+  goalId: string;
+  mainQuest: string;
+  primaryBottleneck: BottleneckType;
+  avoidanceHypothesis: string;
+  smallestWin: string;
+  createdAt: string;
+}
+
+export interface ReturnRun {
+  id: string;
+  goalId: string;
+  questId: string | null;
+  interviewId: string | null;
+  mirrorMessage: string;
+  diagnosisType: BottleneckType;
+  woopPlan: string;
+  ifThenPlan: string;
+  next15mAction: string;
+  decision: ReturnDecision;
+  decisionNote: string;
+  reviewDate: string | null;
+  createdAt: string;
+}
+
+export interface LeadMetricsDaily {
+  dayKey: string;
+  mainWorkRatio: number;
+  metaWorkRatio: number;
+  startDelayMinutes: number | null;
+  resumeDelayMinutes: number | null;
+  switchDensity: number;
+  ifThenCoverage: number;
+  monitoringDone: boolean;
+}
+
 export interface PersistedState {
   goals: Goal[];
   milestones: Milestone[];
@@ -159,6 +291,15 @@ export interface PersistedState {
   artifacts: Artifact[];
   events: QuestEvent[];
   userProfile: UserProfile;
+  uiPreferences: UiPreferences;
+  portfolioSettings: PortfolioSettings;
+  resumeQueueItems: ResumeQueueItem[];
+  workSessions: WorkSession[];
+  metaWorkFlags: MetaWorkFlag[];
+  bottleneckInterviews: BottleneckInterview[];
+  buildImproveDecisions: BuildImproveDecision[];
+  returnRuns: ReturnRun[];
+  leadMetricsDaily: LeadMetricsDaily[];
 }
 
 export interface MapDraftQuest {
@@ -219,6 +360,25 @@ export interface BlockerReroute {
   mode: "ai" | "heuristic";
 }
 
+export interface ReviewFocusCandidateInput {
+  goalId: string;
+  title: string;
+  description: string;
+  currentState: string;
+  status: GoalStatus;
+  isInResumeQueue: boolean;
+  isOverdue: boolean;
+  openBlockerCount: number;
+  activeQuestCount: number;
+  updatedAt: string;
+}
+
+export interface ReviewFocusCandidateReason {
+  goalId: string;
+  reason: string;
+  mode: "ai" | "heuristic";
+}
+
 export interface DashboardStats {
   activeQuestCount: number;
   completedThisWeek: number;
@@ -226,8 +386,49 @@ export interface DashboardStats {
   milestoneCount: number;
 }
 
+export interface ResumeQueueEntry extends ResumeQueueItem {
+  goal: Goal | null;
+  isOverdue: boolean;
+  parkedDays: number;
+}
+
+export interface PortfolioStats {
+  totalGoals: number;
+  activeGoalCount: number;
+  parkedGoalCount: number;
+  resumeQueueCount: number;
+  wipLimit: number;
+  availableSlots: number;
+}
+
+export interface SwitchSummary {
+  switchesThisWeek: number;
+  averageResumeHours: number | null;
+  medianResumeHours: number | null;
+  parkingNoteRate: number;
+  reviewCompletionRate: number;
+  reviewDoneThisWeek: boolean;
+}
+
+export interface MirrorCard {
+  dayKey: string;
+  headline: string;
+  facts: string[];
+  needsReturn: boolean;
+  mainMinutes: number;
+  metaMinutes: number;
+  startDelayMinutes: number | null;
+  switchDensity: number;
+}
+
 export interface AppState extends PersistedState {
+  focusGoal: Goal | null;
   currentGoal: Goal | null;
+  activeGoals: Goal[];
+  parkedGoals: Goal[];
+  resumeQueue: ResumeQueueEntry[];
+  portfolioStats: PortfolioStats;
+  switchSummary: SwitchSummary;
   currentMilestones: Milestone[];
   currentQuests: Quest[];
   currentBlockers: Blocker[];
@@ -235,6 +436,14 @@ export interface AppState extends PersistedState {
   todaySuggestions: TodayQuestSuggestion[];
   stats: DashboardStats;
   recentEvents: QuestEvent[];
+  currentWorkSession: WorkSession | null;
+  todayWorkSessions: WorkSession[];
+  latestBuildImproveDecision: BuildImproveDecision | null;
+  latestBottleneckInterview: BottleneckInterview | null;
+  latestReturnRun: ReturnRun | null;
+  todayLeadMetrics: LeadMetricsDaily | null;
+  todayMetaWorkFlags: MetaWorkFlag[];
+  mirrorCard: MirrorCard;
 }
 
 export interface GoalInput {
@@ -250,6 +459,56 @@ export interface GoalInput {
   todayCapacity: string;
   status: GoalStatus;
   refined?: boolean;
+}
+
+export interface PortfolioSettingsInput {
+  wipLimit: number;
+}
+
+export interface UiPreferencesInput {
+  locale: UiLocale;
+}
+
+export interface BuildImproveCheckInput {
+  goalId: string;
+  questId?: string | null;
+  category: SessionCategory;
+  mainConnection: MainConnectionKind;
+  artifactCommitment: string;
+  timeboxMinutes: number;
+  doneWhen: string;
+}
+
+export interface WorkSessionStartInput {
+  goalId: string;
+  questId?: string | null;
+  category: SessionCategory;
+  gateDecisionId: string;
+}
+
+export interface WorkSessionFinishInput {
+  sessionId: string;
+  artifactNote?: string;
+}
+
+export interface FocusGoalInput {
+  goalId: string;
+  reason: string;
+}
+
+export interface ParkGoalInput {
+  goalId: string;
+  stopMode: StopMode;
+  reason: string;
+  parkingNote: string;
+  nextRestartStep: string;
+  resumeTriggerType: ResumeTriggerType;
+  resumeTriggerText: string;
+}
+
+export interface ResumeGoalInput {
+  goalId: string;
+  reason?: string;
 }
 
 export interface MapInput {
@@ -280,6 +539,33 @@ export interface ReviewInput {
   nextFocus: string;
 }
 
+export interface ReturnInterviewInput {
+  goalId: string;
+  mainQuest: string;
+  primaryBottleneck: BottleneckType;
+  avoidanceHypothesis: string;
+  smallestWin: string;
+}
+
+export interface ReturnRunInput {
+  goalId: string;
+  questId?: string | null;
+  interviewId?: string | null;
+  mirrorMessage: string;
+  diagnosisType: BottleneckType;
+  woopPlan: string;
+  ifThenPlan: string;
+  next15mAction: string;
+  decision: ReturnDecision;
+  decisionNote?: string;
+  reviewDate?: string | null;
+  parkingReason?: string;
+  parkingNote?: string;
+  nextRestartStep?: string;
+  resumeTriggerType?: ResumeTriggerType;
+  resumeTriggerText?: string;
+}
+
 export interface QuestStatusUpdateInput {
   questId: string;
   status: QuestStatus;
@@ -295,6 +581,7 @@ export interface IntakeRefineInput {
   constraints: string[];
   concerns: string;
   todayCapacity: string;
+  locale?: UiLocale;
 }
 
 export interface GenerateMapInput {
@@ -307,6 +594,7 @@ export interface GenerateMapInput {
   currentState: string;
   constraints: string[];
   concerns: string;
+  locale?: UiLocale;
 }
 
 export interface PlanTodayInput {
@@ -315,6 +603,7 @@ export interface PlanTodayInput {
   questSnapshots?: Quest[];
   blockerSnapshots?: Blocker[];
   latestReviewSnapshot?: Review | null;
+  locale?: UiLocale;
 }
 
 export interface RerouteInput {
@@ -324,6 +613,13 @@ export interface RerouteInput {
   blockerType: BlockerType;
   relatedQuestId?: string | null;
   goalSnapshot?: Goal;
+  locale?: UiLocale;
+}
+
+export interface ReviewFocusReasonsInput {
+  currentFocusGoalId?: string | null;
+  candidates: ReviewFocusCandidateInput[];
+  locale?: UiLocale;
 }
 
 export interface RouteOption {

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       title: payload.data.title,
       description: payload.data.description,
       blockerType: payload.data.blockerType,
-    });
+    }, payload.data.locale);
 
     return NextResponse.json({ data: reroute });
   } catch (error) {

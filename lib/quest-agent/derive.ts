@@ -1,17 +1,28 @@
-import {
-  type AppState,
-  type Blocker,
-  type BlockerReroute,
-  type Goal,
-  type IntakeRefinement,
-  type MapDraft,
-  type PersistedState,
-  type Quest,
-  type QuestEvent,
-  type Review,
-  type TodayPlan,
-  type TodayQuestSuggestion,
-  type UserProfile,
+import { buildMirrorCard, dayKeyFromIso, rebuildTrackingCollections } from "@/lib/quest-agent/detect-return";
+import type {
+  AppState,
+  Blocker,
+  BlockerReroute,
+  BuildImproveDecision,
+  Goal,
+  IntakeRefinement,
+  MapDraft,
+  PersistedState,
+  PortfolioSettings,
+  Quest,
+  QuestEvent,
+  ResumeQueueEntry,
+  ResumeQueueItem,
+  Review,
+  ReviewFocusCandidateInput,
+  ReviewFocusCandidateReason,
+  SwitchSummary,
+  TodayPlan,
+  TodayQuestSuggestion,
+  UiLocale,
+  UiPreferences,
+  UserProfile,
+  WorkSession,
 } from "@/lib/quest-agent/types";
 
 export function nowIso(): string {
@@ -20,6 +31,13 @@ export function nowIso(): string {
 
 export function makeId(): string {
   return crypto.randomUUID();
+}
+
+export function clampWipLimit(value: number | undefined | null): number {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return 1;
+  }
+  return Math.min(3, Math.max(1, Math.round(value)));
 }
 
 export function defaultUserProfile(): UserProfile {
@@ -34,6 +52,20 @@ export function defaultUserProfile(): UserProfile {
   };
 }
 
+export function defaultPortfolioSettings(): PortfolioSettings {
+  return {
+    wipLimit: 1,
+    focusGoalId: null,
+    updatedAt: nowIso(),
+  };
+}
+
+export function defaultUiPreferences(): UiPreferences {
+  return {
+    locale: "ja",
+  };
+}
+
 export function emptyPersistedState(): PersistedState {
   return {
     goals: [],
@@ -45,6 +77,15 @@ export function emptyPersistedState(): PersistedState {
     artifacts: [],
     events: [],
     userProfile: defaultUserProfile(),
+    uiPreferences: defaultUiPreferences(),
+    portfolioSettings: defaultPortfolioSettings(),
+    resumeQueueItems: [],
+    workSessions: [],
+    metaWorkFlags: [],
+    bottleneckInterviews: [],
+    buildImproveDecisions: [],
+    returnRuns: [],
+    leadMetricsDaily: [],
   };
 }
 
@@ -59,12 +100,170 @@ export function joinLines(values: string[]): string {
   return values.join("\n");
 }
 
-export function pickCurrentGoal(goals: Goal[]): Goal | null {
-  const sorted = [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  return sorted.find((goal) => goal.status === "active") ?? sorted[0] ?? null;
+function sortGoals(goals: Goal[]): Goal[] {
+  return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[]): TodayQuestSuggestion[] {
+function sortQueueItems(items: ResumeQueueItem[]): ResumeQueueItem[] {
+  return [...items].sort((left, right) => right.parkedAt.localeCompare(left.parkedAt));
+}
+
+function sortSessions(sessions: WorkSession[]): WorkSession[] {
+  return [...sessions].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
+function isRunnableGoal(goal: Goal): boolean {
+  return goal.status !== "completed" && goal.status !== "abandoned";
+}
+
+function findFocusGoal(goals: Goal[], portfolioSettings: PortfolioSettings): Goal | null {
+  const explicit = portfolioSettings.focusGoalId
+    ? goals.find((goal) => goal.id === portfolioSettings.focusGoalId && goal.status !== "completed" && goal.status !== "abandoned")
+    : null;
+
+  if (explicit) {
+    return explicit;
+  }
+
+  return sortGoals(goals.filter((goal) => goal.status === "active"))[0] ?? null;
+}
+
+function prioritizeFocusGoal(goals: Goal[], focusGoal: Goal | null): Goal[] {
+  const sorted = sortGoals(goals);
+  if (!focusGoal) {
+    return sorted;
+  }
+
+  return sorted.sort((left, right) => {
+    if (left.id === focusGoal.id) {
+      return -1;
+    }
+    if (right.id === focusGoal.id) {
+      return 1;
+    }
+    return right.updatedAt.localeCompare(left.updatedAt);
+  });
+}
+
+function daysSince(iso: string): number {
+  const delta = Date.now() - new Date(iso).getTime();
+  return Math.max(0, Math.floor(delta / (24 * 60 * 60 * 1000)));
+}
+
+function isOverdue(item: ResumeQueueItem): boolean {
+  if (item.resumeTriggerType !== "date") {
+    return false;
+  }
+
+  const triggerDate = Date.parse(item.resumeTriggerText);
+  if (Number.isNaN(triggerDate)) {
+    return false;
+  }
+
+  return triggerDate < Date.now();
+}
+
+function average(values: number[]): number | null {
+  if (!values.length) {
+    return null;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) {
+    return null;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
+}
+
+function weekKey(iso: string): string {
+  const date = new Date(iso);
+  const utc = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const normalized = new Date(utc);
+  const day = normalized.getUTCDay() || 7;
+  normalized.setUTCDate(normalized.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(normalized.getUTCFullYear(), 0, 1));
+  const weekNumber = Math.ceil((((normalized.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${normalized.getUTCFullYear()}-${String(weekNumber).padStart(2, "0")}`;
+}
+
+function buildResumeQueueEntries(state: PersistedState): ResumeQueueEntry[] {
+  const goalMap = new Map(state.goals.map((goal) => [goal.id, goal]));
+  return sortQueueItems(state.resumeQueueItems)
+    .filter((item) => item.status === "waiting")
+    .map((item) => ({
+      ...item,
+      goal: goalMap.get(item.goalId) ?? null,
+      isOverdue: isOverdue(item),
+      parkedDays: daysSince(item.parkedAt),
+    }));
+}
+
+function buildSwitchSummary(state: PersistedState): SwitchSummary {
+  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const fourWeeksAgo = Date.now() - 28 * 24 * 60 * 60 * 1000;
+  const resumeEvents = state.events.filter((event) => event.type === "goal_resumed");
+  const resumeDelays = state.resumeQueueItems
+    .filter((item) => item.status === "resumed")
+    .map((item) => {
+      const resumeEvent = resumeEvents.find((event) => event.goalId === item.goalId && event.createdAt >= item.parkedAt);
+      if (!resumeEvent) {
+        return null;
+      }
+      return (new Date(resumeEvent.createdAt).getTime() - new Date(item.parkedAt).getTime()) / (60 * 60 * 1000);
+    })
+    .filter((value): value is number => typeof value === "number" && !Number.isNaN(value));
+
+  const reviewWeekKeys = new Set(
+    state.reviews.filter((review) => new Date(review.createdAt).getTime() >= fourWeeksAgo).map((review) => weekKey(review.createdAt)),
+  );
+
+  return {
+    switchesThisWeek: state.events.filter((event) => event.type === "goal_switch_recorded" && new Date(event.createdAt).getTime() >= oneWeekAgo).length,
+    averageResumeHours: average(resumeDelays),
+    medianResumeHours: median(resumeDelays),
+    parkingNoteRate: state.resumeQueueItems.length
+      ? Math.round((state.resumeQueueItems.filter((item) => item.parkingNote.trim().length > 0).length / state.resumeQueueItems.length) * 100)
+      : 0,
+    reviewCompletionRate: Math.round((reviewWeekKeys.size / 4) * 100),
+    reviewDoneThisWeek: state.reviews.some((review) => new Date(review.createdAt).getTime() >= oneWeekAgo),
+  };
+}
+
+export function pickCurrentGoal(goals: Goal[], portfolioSettings?: PortfolioSettings): Goal | null {
+  return findFocusGoal(goals, portfolioSettings ?? defaultPortfolioSettings());
+}
+
+function getTodaySuggestionReason(quest: Quest, isBlocked: boolean, locale: UiLocale): string {
+  if (isBlocked) {
+    return locale === "ja"
+      ? "この作業には未解決の詰まりがある。先にそこを小さくすると進めやすい。"
+      : "This quest is linked to an active blocker, so shrinking that blocker first may help.";
+  }
+
+  if (quest.status === "in_progress") {
+    return locale === "ja"
+      ? "すでに動いている作業なので、戻る負荷がいちばん小さい。"
+      : "This work is already in motion, so it is the cheapest place to resume.";
+  }
+
+  return locale === "ja"
+    ? "次の一手が見えやすく、今日動かしやすい。"
+    : "Its next move is visible and easy to start today.";
+}
+
+function getTodaySuggestionHint(description: string, locale: UiLocale): string {
+  return description || (locale === "ja" ? "終わりが見える大きさまで小さくする。" : "Shrink the work until the finish line is visible.");
+}
+export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[], locale: UiLocale = "ja"): TodayQuestSuggestion[] {
   const blockedQuestIds = new Set(
     blockers.filter((blocker) => blocker.status === "open" && blocker.relatedQuestId).map((blocker) => blocker.relatedQuestId),
   );
@@ -98,15 +297,152 @@ export function buildTodaySuggestions(quests: Quest[], blockers: Blocker[]): Tod
     .map((quest) => ({
       questId: quest.id,
       title: quest.title,
-      reason: blockedQuestIds.has(quest.id)
-        ? "This quest is linked to an active blocker, so unblock wording comes first."
-        : quest.status === "in_progress"
-          ? "This is already in motion, so it is the easiest place to restart."
-          : "This is the clearest next step with the lowest friction today.",
+      reason: getTodaySuggestionReason(quest, blockedQuestIds.has(quest.id), locale),
       focusMinutes: quest.estimatedMinutes ?? 45,
-      successHint: quest.description || "Shrink the work until the finish line is visible.",
+      successHint: getTodaySuggestionHint(quest.description, locale),
       status: quest.status,
     }));
+}
+
+export function findLatestArtifactNoteForGoal(workSessions: WorkSession[], goalId: string): string {
+  return [...workSessions]
+    .filter((session) => session.goalId === goalId && Boolean(session.endedAt) && session.artifactNote.trim().length > 0)
+    .sort((left, right) => (right.endedAt ?? right.startedAt).localeCompare(left.endedAt ?? left.startedAt))[0]?.artifactNote.trim() ?? "";
+}
+
+export function findLatestDoneWhenForGoal(buildImproveDecisions: BuildImproveDecision[], goalId: string): string {
+  return [...buildImproveDecisions]
+    .filter((decision) => decision.goalId === goalId && decision.doneWhen.trim().length > 0)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.doneWhen.trim() ?? "";
+}
+
+function reviewFocusCandidateRank(candidate: ReviewFocusCandidateInput): number {
+  if (candidate.isInResumeQueue && candidate.isOverdue) {
+    return 0;
+  }
+  if (candidate.isInResumeQueue) {
+    return 1;
+  }
+  if (candidate.status === "active" && candidate.activeQuestCount > 0) {
+    return 2;
+  }
+  return 3;
+}
+
+export function buildReviewFocusCandidates(state: AppState): ReviewFocusCandidateInput[] {
+  const focusGoalId = state.focusGoal?.id ?? null;
+  const waitingQueue = new Map(state.resumeQueue.map((item) => [item.goalId, item]));
+  const candidates = state.goals
+    .filter((goal) => goal.status !== "completed")
+    .map((goal) => ({
+      goalId: goal.id,
+      title: goal.title,
+      description: goal.description,
+      currentState: goal.currentState,
+      status: goal.status,
+      isInResumeQueue: waitingQueue.has(goal.id),
+      isOverdue: waitingQueue.get(goal.id)?.isOverdue ?? false,
+      openBlockerCount: state.blockers.filter((blocker) => blocker.goalId === goal.id && blocker.status === "open").length,
+      activeQuestCount: state.quests.filter((quest) => quest.goalId === goal.id && (quest.status === "ready" || quest.status === "in_progress")).length,
+      updatedAt: goal.updatedAt,
+    }))
+    .sort((left, right) => {
+      const rankDelta = reviewFocusCandidateRank(left) - reviewFocusCandidateRank(right);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      return right.updatedAt.localeCompare(left.updatedAt);
+    });
+
+  const alternatives = focusGoalId ? candidates.filter((candidate) => candidate.goalId !== focusGoalId) : candidates;
+  const visible = alternatives.length > 0 ? alternatives : candidates;
+  return visible.slice(0, 4);
+}
+
+function getHeuristicReviewReason(candidate: ReviewFocusCandidateInput, locale: UiLocale): string {
+  if (candidate.isInResumeQueue && candidate.isOverdue) {
+    return locale === "ja"
+      ? "再開条件が来ていて、戻り先も決まっている。"
+      : "Its restart condition has arrived and the return path is already clear.";
+  }
+
+  if (candidate.isInResumeQueue) {
+    return locale === "ja"
+      ? "再開メモがあり、戻る負荷が小さい。"
+      : "It already has a restart note, so the return cost is low.";
+  }
+
+  if (candidate.status === "active" && candidate.activeQuestCount > 0 && candidate.openBlockerCount <= 1) {
+    return locale === "ja"
+      ? "いま動かせる次の一手が見えている。"
+      : "Its next move is visible right now.";
+  }
+
+  if (candidate.status === "active" && candidate.openBlockerCount > 1) {
+    return locale === "ja"
+      ? "詰まりはあるが、見直せば前進に戻しやすい。"
+      : "It has blockers, but a review could bring it back into forward motion.";
+  }
+
+  return locale === "ja"
+    ? "今の状態なら前に出しやすい。"
+    : "This looks easy to move to the front next.";
+}
+
+function sortGoalsByUpdatedAt(goals: Goal[]): Goal[] {
+  return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export function buildPortfolioMovableGoals(state: AppState): Goal[] {
+  const queuedGoalIds = new Set(state.resumeQueue.map((item) => item.goalId));
+  const activeIds = new Set(state.activeGoals.map((goal) => goal.id));
+  const active = state.activeGoals.filter((goal) => goal.id !== state.focusGoal?.id && !queuedGoalIds.has(goal.id));
+  const candidates = sortGoalsByUpdatedAt(
+    state.goals.filter((goal) => {
+      if (goal.id === state.focusGoal?.id) {
+        return false;
+      }
+      if (queuedGoalIds.has(goal.id)) {
+        return false;
+      }
+      if (goal.status === "completed" || goal.status === "abandoned") {
+        return false;
+      }
+      return !activeIds.has(goal.id);
+    }),
+  );
+
+  return [...active, ...candidates];
+}
+
+function stoppedEntryRank(item: ResumeQueueEntry): number {
+  if (item.isOverdue) {
+    return 0;
+  }
+  if (item.resumeTriggerType === "date") {
+    return 1;
+  }
+  if (item.resumeTriggerType === "manual") {
+    return 2;
+  }
+  return 3;
+}
+
+export function buildPortfolioStoppedEntries(state: AppState): ResumeQueueEntry[] {
+  return [...state.resumeQueue].sort((left, right) => {
+    const rankDelta = stoppedEntryRank(left) - stoppedEntryRank(right);
+    if (rankDelta !== 0) {
+      return rankDelta;
+    }
+    return right.parkedAt.localeCompare(left.parkedAt);
+  });
+}
+export function buildHeuristicReviewFocusReasons(candidates: ReviewFocusCandidateInput[], locale: UiLocale = "ja"): ReviewFocusCandidateReason[] {
+  return candidates.map((candidate) => ({
+    goalId: candidate.goalId,
+    reason: getHeuristicReviewReason(candidate, locale),
+    mode: "heuristic",
+  }));
 }
 
 export function buildDashboardStats(quests: Quest[], blockers: Blocker[], events: QuestEvent[]) {
@@ -121,36 +457,125 @@ export function buildDashboardStats(quests: Quest[], blockers: Blocker[], events
 }
 
 export function enrichState(state: PersistedState): AppState {
-  const currentGoal = pickCurrentGoal(state.goals);
-  const currentMilestones = currentGoal
-    ? state.milestones.filter((milestone) => milestone.goalId === currentGoal.id).sort((left, right) => left.sequence - right.sequence)
-    : [];
-  const currentQuests = currentGoal
-    ? state.quests.filter((quest) => quest.goalId === currentGoal.id).sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    : [];
-  const currentBlockers = currentGoal
-    ? state.blockers.filter((blocker) => blocker.goalId === currentGoal.id).sort((left, right) => right.detectedAt.localeCompare(left.detectedAt))
-    : [];
-  const currentReviews = currentGoal
-    ? state.reviews.filter((review) => review.goalId === currentGoal.id).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    : [];
-  const stats = buildDashboardStats(currentQuests, currentBlockers, state.events);
+  const portfolioSettings: PortfolioSettings = {
+    ...defaultPortfolioSettings(),
+    ...(state.portfolioSettings ?? {}),
+    wipLimit: clampWipLimit(state.portfolioSettings?.wipLimit),
+  };
 
-  return {
+  const uiPreferences: UiPreferences = {
+    ...defaultUiPreferences(),
+    ...(state.uiPreferences ?? {}),
+  };
+
+  const rawState: PersistedState = {
+    ...emptyPersistedState(),
     ...state,
     userProfile: state.userProfile ?? defaultUserProfile(),
-    currentGoal,
+    uiPreferences,
+    portfolioSettings,
+    resumeQueueItems: state.resumeQueueItems ?? [],
+    workSessions: state.workSessions ?? [],
+    metaWorkFlags: state.metaWorkFlags ?? [],
+    bottleneckInterviews: state.bottleneckInterviews ?? [],
+    buildImproveDecisions: state.buildImproveDecisions ?? [],
+    returnRuns: state.returnRuns ?? [],
+    leadMetricsDaily: state.leadMetricsDaily ?? [],
+  };
+
+  const tracking = rebuildTrackingCollections(rawState);
+  const safeState: PersistedState = {
+    ...rawState,
+    metaWorkFlags: tracking.metaWorkFlags,
+    leadMetricsDaily: tracking.leadMetricsDaily,
+  };
+
+  const focusGoal = findFocusGoal(safeState.goals, portfolioSettings);
+  const waitingGoalIds = new Set(safeState.resumeQueueItems.filter((item) => item.status === "waiting").map((item) => item.goalId));
+  const activeGoals = prioritizeFocusGoal(safeState.goals.filter((goal) => goal.status === "active"), focusGoal);
+  const parkedGoals = sortGoals(safeState.goals.filter((goal) => waitingGoalIds.has(goal.id)));
+  const currentMilestones = focusGoal
+    ? safeState.milestones.filter((milestone) => milestone.goalId === focusGoal.id).sort((left, right) => left.sequence - right.sequence)
+    : [];
+  const currentQuests = focusGoal
+    ? safeState.quests.filter((quest) => quest.goalId === focusGoal.id).sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    : [];
+  const currentBlockers = focusGoal
+    ? safeState.blockers.filter((blocker) => blocker.goalId === focusGoal.id).sort((left, right) => right.detectedAt.localeCompare(left.detectedAt))
+    : [];
+  const currentReviews = focusGoal
+    ? safeState.reviews.filter((review) => review.goalId === focusGoal.id).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    : [];
+  const resumeQueue = buildResumeQueueEntries(safeState);
+  const stats = buildDashboardStats(safeState.quests, safeState.blockers, safeState.events);
+  const currentWorkSession = [...safeState.workSessions]
+    .filter((session) => !session.endedAt)
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0] ?? null;
+  const todayKey = dayKeyFromIso(nowIso());
+  const todayWorkSessions = sortSessions(safeState.workSessions.filter((session) => dayKeyFromIso(session.startedAt) === todayKey));
+  const todayLeadMetrics = safeState.leadMetricsDaily.find((item) => item.dayKey === todayKey) ?? null;
+  const todayMetaWorkFlags = safeState.metaWorkFlags.filter((item) => item.dayKey === todayKey);
+  const latestBuildImproveDecision: BuildImproveDecision | null = [...safeState.buildImproveDecisions]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
+  const latestBottleneckInterview = [...safeState.bottleneckInterviews]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
+  const latestReturnRun = [...safeState.returnRuns].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
+
+  return {
+    ...safeState,
+    focusGoal,
+    currentGoal: focusGoal,
+    activeGoals,
+    parkedGoals,
+    resumeQueue,
+    portfolioStats: {
+      totalGoals: safeState.goals.filter((goal) => isRunnableGoal(goal) || waitingGoalIds.has(goal.id)).length,
+      activeGoalCount: activeGoals.length,
+      parkedGoalCount: parkedGoals.length,
+      resumeQueueCount: resumeQueue.length,
+      wipLimit: portfolioSettings.wipLimit,
+      availableSlots: Math.max(0, portfolioSettings.wipLimit - activeGoals.length),
+    },
+    switchSummary: buildSwitchSummary(safeState),
     currentMilestones,
     currentQuests,
     currentBlockers,
     currentReviews,
-    todaySuggestions: buildTodaySuggestions(currentQuests, currentBlockers),
+    todaySuggestions: buildTodaySuggestions(currentQuests, currentBlockers, uiPreferences.locale),
     stats: {
       ...stats,
       milestoneCount: currentMilestones.length,
     },
-    recentEvents: [...state.events].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 8),
+    recentEvents: [...safeState.events].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 12),
+    currentWorkSession,
+    todayWorkSessions,
+    latestBuildImproveDecision,
+    latestBottleneckInterview,
+    latestReturnRun,
+    todayLeadMetrics,
+    todayMetaWorkFlags,
+    mirrorCard: buildMirrorCard(safeState, uiPreferences.locale),
   };
+}
+
+function getDefaultSuccessCriteria(locale: UiLocale): string[] {
+  return locale === "ja"
+    ? [
+        "終わったと説明できる状態を一文で書ける。",
+        "外に出せる成果物が一つある。",
+        "次の判断に使える記録が残る。",
+      ]
+    : [
+        "You can explain what done looks like in one sentence.",
+        "You can show one concrete artifact or output.",
+        "You leave evidence that helps the next decision.",
+      ];
+}
+
+function getDefaultConstraints(locale: UiLocale): string[] {
+  return locale === "ja"
+    ? ["使える時間", "保留中の判断", "次の一手の曖昧さ"]
+    : ["Available time", "Decision waiting", "Unclear next step"];
 }
 
 export function buildHeuristicIntakeRefinement(input: {
@@ -162,109 +587,107 @@ export function buildHeuristicIntakeRefinement(input: {
   currentState: string;
   constraints: string[];
   concerns: string;
-}): IntakeRefinement {
-  const successCriteria = input.successCriteria.length
-    ? input.successCriteria
-    : [
-        "You can explain what done looks like in one sentence.",
-        "You can show a concrete artifact or output.",
-        "You leave evidence that helps the next decision.",
-      ];
-
-  const constraintsToWatch = input.constraints.length
-    ? input.constraints
-    : ["Available time", "Decision waiting", "Unclear next step"];
+}, locale: UiLocale = "ja"): IntakeRefinement {
+  const successCriteria = input.successCriteria.length ? input.successCriteria : getDefaultSuccessCriteria(locale);
+  const constraintsToWatch = input.constraints.length ? input.constraints : getDefaultConstraints(locale);
+  const goalSummary = input.description || (
+    locale === "ja"
+      ? input.deadline
+        ? `${input.title}を、${input.deadline}までに進めやすい形へ整える。`
+        : `${input.title}を、進めやすい形へ整える。`
+      : input.deadline
+        ? `${input.title} needs to become easier to move before ${input.deadline}.`
+        : `${input.title} needs to become easier to move.`
+  );
 
   return {
     goalTitle: input.title,
-    goalSummary:
-      input.description ||
-      `${input.title} needs to move from an ambitious idea into an executable route${input.deadline ? ` by ${input.deadline}` : ""}.`,
+    goalSummary,
     successCriteria,
     constraintsToWatch,
     openQuestions: [
-      input.currentState ? `Current state: ${input.currentState}` : "What is already true right now?",
-      input.concerns ? `Main concern: ${input.concerns}` : "Where are you most likely to stall?",
-      "What is the smallest thing you could show this week?",
+      input.currentState
+        ? (locale === "ja" ? `現状: ${input.currentState}` : `Current state: ${input.currentState}`)
+        : (locale === "ja" ? "いま何ができているか。" : "What is already true right now?"),
+      input.concerns
+        ? (locale === "ja" ? `気になる点: ${input.concerns}` : `Main concern: ${input.concerns}`)
+        : (locale === "ja" ? "どこで止まりそうか。" : "Where are you most likely to stall?"),
+      locale === "ja" ? "今週見せられる最小の成果は何か。" : "What is the smallest thing you could show this week?",
     ],
-    firstRouteNote: "Start with a route you can actually begin, not the perfect plan.",
+    firstRouteNote: locale === "ja"
+      ? "完璧な計画ではなく、今日から始められる進め方にする。"
+      : "Start with a route you can actually begin, not the perfect plan.",
     mode: "heuristic",
   };
 }
 
-export function buildHeuristicMapDraft(goal: Goal): MapDraft {
-  const deadlineLabel = goal.deadline ?? "the current working window";
+export function buildHeuristicMapDraft(goal: Goal, locale: UiLocale = "ja"): MapDraft {
+  const deadlineLabel = goal.deadline ?? (locale === "ja" ? "この作業期間" : "the current working window");
   return {
-    routeSummary: `Move ${goal.title} through three stages before ${deadlineLabel}: clarify the route, build the core, then polish and share.`,
+    routeSummary: locale === "ja"
+      ? `${goal.title}を${deadlineLabel}の中で進めるために、段階を分けて再開しやすくする。`
+      : `Move ${goal.title} through a route that stays easy to resume before ${deadlineLabel}.`,
     milestones: [
       {
         tempId: makeId(),
-        title: "Clarify the route",
-        description: "Reduce ambiguity around the goal, the constraints, and the finish line.",
+        title: locale === "ja" ? "方向をはっきりさせる" : "Clarify the route",
+        description: locale === "ja" ? "終わりの条件と、いまの状況を短くそろえる。" : "Clarify the finish line and the current state.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "Lock the win conditions",
-            description: "Turn success criteria into a short checklist.",
+            title: locale === "ja" ? "終わりの条件をそろえる" : "Lock the win conditions",
+            description: locale === "ja" ? "成功条件を短いチェックリストにする。" : "Turn success criteria into a short checklist.",
             priority: "high",
             dueDate: goal.deadline,
             estimatedMinutes: 30,
             questType: "main",
           },
           {
-            title: "Write the current-state snapshot",
-            description: goal.currentState || "Summarize what is already done and what is still fuzzy.",
+            title: locale === "ja" ? "いまの状況を一度書く" : "Write the current-state snapshot",
+            description: goal.currentState || (locale === "ja" ? "できていることと曖昧なことを短く書く。" : "Summarize what is already done and what is still fuzzy."),
             priority: "high",
             dueDate: goal.deadline,
-            estimatedMinutes: 30,
+            estimatedMinutes: 25,
             questType: "main",
           },
         ],
       },
       {
         tempId: makeId(),
-        title: "Build the core",
-        description: "Create the smallest version that proves the route is viable.",
+        title: locale === "ja" ? "本体を進める" : "Build the core",
+        description: locale === "ja" ? "進んだと分かる最小の一歩を外に出す。" : "Do the smallest slice that proves the route works.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: `Build the core of ${goal.title}`,
-            description: goal.description || "Make the smallest artifact you can show to someone else.",
+            title: locale === "ja" ? "最小の成果物を出す" : "Ship the smallest visible output",
+            description: locale === "ja" ? "今週の前進を示せるものを一つ選んで作る。" : "Choose one artifact that would prove movement this week.",
             priority: "high",
             dueDate: goal.deadline,
-            estimatedMinutes: 60,
+            estimatedMinutes: 45,
             questType: "main",
           },
           {
-            title: "Name likely blockers early",
-            description: goal.concerns || "Write down the blockers that would stop momentum.",
+            title: locale === "ja" ? "いちばん大きい詰まりをほどく" : "Remove the loudest blocker",
+            description: locale === "ja" ? "止まりそうな点があるなら、先に小さくほどく。" : "If something would stop execution, shrink or reroute it now.",
             priority: "medium",
             dueDate: goal.deadline,
-            estimatedMinutes: 25,
+            estimatedMinutes: 30,
             questType: "side",
           },
         ],
       },
       {
         tempId: makeId(),
-        title: "Polish and reroute",
-        description: "Review progress, tighten the route, and prepare the next stretch.",
+        title: locale === "ja" ? "整えて次につなぐ" : "Polish and share",
+        description: locale === "ja" ? "次に戻りやすい形で記録を残す。" : "Leave the work easy to resume or explain.",
         targetDate: goal.deadline,
         quests: [
           {
-            title: "Share a progress artifact",
-            description: "Pick one person or one place where the current progress can be shown.",
+            title: locale === "ja" ? "学びと次の一手を残す" : "Capture learnings and next steps",
+            description: locale === "ja" ? "次に戻るときの負荷を下げるメモを残す。" : "Leave notes that make the next restart cheaper.",
             priority: "medium",
             dueDate: goal.deadline,
-            estimatedMinutes: 30,
-            questType: "main",
-          },
-          {
-            title: "Write a weekly review",
-            description: "Capture what worked, what stalled, and what should change next.",
-            priority: "medium",
-            dueDate: goal.deadline,
-            estimatedMinutes: 30,
+            estimatedMinutes: 20,
             questType: "side",
           },
         ],
@@ -274,47 +697,40 @@ export function buildHeuristicMapDraft(goal: Goal): MapDraft {
   };
 }
 
-export function buildHeuristicTodayPlan(goal: Goal, quests: Quest[], blockers: Blocker[], review: Review | undefined): TodayPlan {
-  const questSuggestions = buildTodaySuggestions(quests, blockers);
-  const notes = [
-    goal.todayCapacity ? `Today's capacity: ${goal.todayCapacity}` : "Bias toward a 25-minute block if energy is unclear.",
-    blockers.some((blocker) => blocker.status === "open")
-      ? "There is at least one open blocker, so include one unblock step in today's route."
-      : "No major blocker is visible, so favor the clearest direct step.",
-  ];
-
-  if (review?.rerouteNote) {
-    notes.push(`Last reroute note: ${review.rerouteNote}`);
-  }
+export function buildHeuristicTodayPlan(
+  inputOrGoal: { goal: Goal; quests: Quest[]; blockers: Blocker[]; review?: Review | null } | Goal,
+  questsArg?: Quest[],
+  blockersArg?: Blocker[],
+  reviewArg?: Review | null,
+  locale: UiLocale = "ja",
+): TodayPlan {
+  const input = "goal" in inputOrGoal
+    ? inputOrGoal
+    : { goal: inputOrGoal, quests: questsArg ?? [], blockers: blockersArg ?? [], review: reviewArg ?? null };
+  const suggestions = buildTodaySuggestions(input.quests, input.blockers, locale);
 
   return {
-    theme: "Today is about protecting momentum with one concrete forward move.",
-    quests: questSuggestions.length
-      ? questSuggestions
-      : [
-          {
-            questId: null,
-            title: "Create the Quest Map",
-            reason: "There is no saved route yet, so the next best move is to define one.",
-            focusMinutes: 30,
-            successHint: "Keep it to three milestones and save the draft.",
-            status: "suggested",
-          },
-        ],
-    notes,
+    theme: input.review?.nextFocus || (locale === "ja" ? `${input.goal.title}の次の一手を見える形にする。` : `Keep ${input.goal.title} moving with the clearest next step.`),
+    quests: suggestions,
+    notes: [
+      input.goal.todayCapacity
+        ? (locale === "ja" ? `今日に使える時間: ${input.goal.todayCapacity}` : `Today's capacity: ${input.goal.todayCapacity}`)
+        : (locale === "ja" ? "まずは一つの短い作業に絞る。" : "Plan one clean work block first."),
+      input.blockers.length
+        ? (locale === "ja" ? "詰まりがあるので、必要なら先に小さくほどく。" : "There is a blocker, so you may need to shrink it first.")
+        : (locale === "ja" ? "いま大きな詰まりは記録されていない。" : "No active blocker is recorded right now."),
+    ],
     mode: "heuristic",
   };
 }
 
-export function buildHeuristicBlockerReroute(goal: Goal, blocker: { title: string; description: string; blockerType: string }): BlockerReroute {
+export function buildHeuristicBlockerReroute(goal: Goal, blocker: { title: string; description: string; blockerType: string }, locale: UiLocale = "ja"): BlockerReroute {
   return {
     blockerLabel: blocker.title,
-    diagnosis:
-      blocker.description ||
-      `${goal.title} is currently stalled because the next concrete step is still too fuzzy or too large.`,
-    nextStep: "Shrink the problem to one action that can finish in 10 to 25 minutes.",
-    alternateRoute: "If the direct route still feels heavy, switch to a smaller evidence-producing side quest.",
-    reframing: "This is not a motivation failure. It is a sign that the route needs a smaller step size.",
+    diagnosis: blocker.description || (locale === "ja" ? `${goal.title}は、この詰まりで進みにくくなっている。` : `${blocker.blockerType} is slowing ${goal.title}.`),
+    nextStep: locale === "ja" ? "この詰まりを、一つの判断か一つの質問まで小さくする。" : "Shrink the blocker into one decision or one question you can answer now.",
+    alternateRoute: locale === "ja" ? "すぐ解けないなら、先に証拠になる小さい一歩へ回り道する。" : "If the blocker stays, route around it with a smaller proof step.",
+    reframing: locale === "ja" ? "全部解決してから進む必要はない。次の一手が見えれば十分。" : "The goal does not need the full solution before the next move becomes valid.",
     mode: "heuristic",
   };
 }
