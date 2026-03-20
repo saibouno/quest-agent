@@ -336,6 +336,12 @@ export interface IntakeRefinement {
   mode: "ai" | "heuristic";
 }
 
+export interface IntakeSnapshot {
+  openQuestions: string[];
+  firstRouteNote: string;
+  refinementMode: "ai" | "heuristic";
+}
+
 export interface TodayQuestSuggestion {
   questId: string | null;
   title: string;
@@ -425,6 +431,7 @@ export interface MirrorCard {
 export interface AppState extends PersistedState {
   focusGoal: Goal | null;
   currentGoal: Goal | null;
+  currentGoalIntakeSnapshot: IntakeSnapshot | null;
   activeGoals: Goal[];
   parkedGoals: Goal[];
   resumeQueue: ResumeQueueEntry[];
@@ -460,6 +467,7 @@ export interface GoalInput {
   todayCapacity: string;
   status: GoalStatus;
   refined?: boolean;
+  intakeSnapshot?: IntakeSnapshot;
 }
 
 export interface PortfolioSettingsInput {

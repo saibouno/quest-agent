@@ -9,7 +9,7 @@ import { DisclosureSection } from "@/components/shared/disclosure-section";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
 import { getCopy, getLabel, interpolate, localizeRuntimeError } from "@/lib/quest-agent/copy";
-import type { Blocker, BuildImproveDecision, TodayPlan } from "@/lib/quest-agent/types";
+import type { Blocker, BuildImproveDecision, TodayPlan, UiLocale } from "@/lib/quest-agent/types";
 
 function defaultSessionForm(questId: string) {
   return {
@@ -20,6 +20,28 @@ function defaultSessionForm(questId: string) {
     timeboxMinutes: 25,
     doneWhen: "",
   };
+}
+
+function getTodayUiCopy(locale: UiLocale) {
+  return locale === "ja"
+    ? {
+        primaryQuest: "今日の主 quest",
+        primaryAction: "主アクション",
+        focusCard: "いま進める goal",
+        openSession: "主アクションを決める",
+        closeSession: "あとで閉じる",
+        activeSessionLead: "いま進めている 1 件だけを閉じます。",
+        prepareSessionLead: "まずは 1 ブロック分だけ決めれば十分です。",
+      }
+    : {
+        primaryQuest: "Primary quest",
+        primaryAction: "Primary action",
+        focusCard: "Goal in front right now",
+        openSession: "Prepare the next block",
+        closeSession: "Close for now",
+        activeSessionLead: "Only close the one block already in progress.",
+        prepareSessionLead: "Decide just one block before you start.",
+      };
 }
 
 export function TodayPageClient() {
@@ -36,11 +58,13 @@ export function TodayPageClient() {
   } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
+  const uiCopy = getTodayUiCopy(locale);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [todayPlan, setTodayPlan] = useState<TodayPlan | null>(null);
   const [latestBlocker, setLatestBlocker] = useState<Blocker | null>(state.currentBlockers[0] ?? null);
+  const [showSessionPlanner, setShowSessionPlanner] = useState(false);
   const [sessionForm, setSessionForm] = useState(defaultSessionForm(state.currentQuests[0]?.id ?? ""));
   const [pendingGateDecision, setPendingGateDecision] = useState<BuildImproveDecision | null>(null);
   const [finishArtifactNote, setFinishArtifactNote] = useState("");
@@ -94,17 +118,17 @@ export function TodayPageClient() {
     ],
     mode: "heuristic" as const,
   };
-
   const primaryPlanQuest = plan.quests[0] ?? null;
+  const suggestedQuestId = primaryPlanQuest?.questId ?? state.currentQuests[0]?.id ?? "";
   const remainingPlanCount = Math.max(plan.quests.length - 1, 0);
   const latestSession = state.todayWorkSessions[0] ?? null;
   const latestSessionDecision = latestSession?.gateDecisionId ? decisionMap.get(latestSession.gateDecisionId) : null;
-  const sessionSummary = state.todayWorkSessions.length
-    ? `${interpolate(copy.common.itemCount, { value: String(state.todayWorkSessions.length) })}${latestSessionDecision?.artifactCommitment ? ` ・ ${latestSessionDecision.artifactCommitment}` : ""}`
-    : copy.today.sessionsEmpty;
   const planSummary = primaryPlanQuest
-    ? `${primaryPlanQuest.title} ・ ${primaryPlanQuest.focusMinutes}${copy.common.minutes}${remainingPlanCount ? ` ・ +${remainingPlanCount}` : ""}`
+    ? `${primaryPlanQuest.title} / ${primaryPlanQuest.focusMinutes}${copy.common.minutes}${remainingPlanCount ? ` / +${remainingPlanCount}` : ""}`
     : copy.common.noData;
+  const sessionSummary = state.todayWorkSessions.length
+    ? `${interpolate(copy.common.itemCount, { value: String(state.todayWorkSessions.length) })}${latestSessionDecision?.artifactCommitment ? ` / ${latestSessionDecision.artifactCommitment}` : ""}`
+    : copy.today.sessionsEmpty;
   const blockerSummary = latestBlocker?.title ?? copy.today.blockerLead;
 
   function refreshIfNeeded() {
@@ -114,8 +138,9 @@ export function TodayPageClient() {
   }
 
   function resetSessionForm() {
-    setSessionForm(defaultSessionForm(state.currentQuests[0]?.id ?? ""));
+    setSessionForm(defaultSessionForm(suggestedQuestId));
     setPendingGateDecision(null);
+    setShowSessionPlanner(false);
   }
 
   function handleReplan() {
@@ -231,7 +256,7 @@ export function TodayPageClient() {
           description: "",
           blockerType: "unknown",
           severity: "medium",
-          relatedQuestId: state.currentQuests[0]?.id ?? "",
+          relatedQuestId: suggestedQuestId,
         });
         setMessage(copy.today.messages.blockerSaved);
         refreshIfNeeded();
@@ -255,117 +280,219 @@ export function TodayPageClient() {
       {message ? <p className="feedback feedback--ok">{message}</p> : null}
       {error ? <p className="feedback feedback--error">{error}</p> : null}
 
-      {state.currentWorkSession ? (
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">{copy.today.activeSessionTitle}</p>
-              <h2>{activeDecision?.artifactCommitment || state.focusGoal.title}</h2>
-              <p className="muted">{copy.today.labels.doneWhen}: {activeDecision?.doneWhen || copy.common.noData}</p>
-            </div>
-            <StatusPill label={state.currentWorkSession.category} />
+      <SectionCard>
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">{uiCopy.focusCard}</p>
+            <h2>{state.focusGoal.title}</h2>
+            <p className="muted">{state.focusGoal.currentState || state.focusGoal.description || copy.common.noSummary}</p>
           </div>
-          <div className="stack-lg">
-            <div className="pill-row">
-              <span className="pill">{state.currentWorkSession.plannedMinutes} {copy.common.minutes}</span>
-              {activeDecision ? <StatusPill label={activeDecision.mode} /> : null}
-            </div>
-            <label className="field field--full">
-              <span>{copy.today.fields.artifactLeft}</span>
-              <textarea className="textarea" rows={2} value={finishArtifactNote} onChange={(event) => setFinishArtifactNote(event.target.value)} placeholder={copy.today.fields.artifactLeftPlaceholder} />
-            </label>
-            <div className="button-row">
-              <button className="button" disabled={isPending} onClick={handleFinishSession} type="button">
-                {copy.today.buttons.finishSession}
-              </button>
-            </div>
+          <StatusPill label={state.focusGoal.status} />
+        </div>
+        <div className="pill-row">
+          <span className="pill">{copy.shell.focus} {state.focusGoal.title}</span>
+          {state.focusGoal.todayCapacity ? <span className="pill">{state.focusGoal.todayCapacity}</span> : null}
+        </div>
+        <div className="button-row">
+          <Link className="button button--secondary" href="/map">
+            {copy.common.openMap}
+          </Link>
+          {state.mirrorCard.needsReturn ? (
+            <Link className="button" href="/return">
+              {copy.common.openReturn}
+            </Link>
+          ) : null}
+        </div>
+      </SectionCard>
+
+      <SectionCard>
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">{uiCopy.primaryQuest}</p>
+            <h2>{primaryPlanQuest?.title ?? copy.today.fallbackTheme}</h2>
+            <p className="muted">{primaryPlanQuest?.reason ?? copy.today.fallbackNotes.noCapacity}</p>
           </div>
-        </SectionCard>
-      ) : (
-        <SectionCard>
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">{copy.today.sessionStartTitle}</p>
-              <h2>{state.focusGoal.title}</h2>
-              <p className="muted">{copy.today.sessionStartLead}</p>
-            </div>
+          <div className="pill-row">
+            {primaryPlanQuest ? <StatusPill label={primaryPlanQuest.status} /> : null}
+            {primaryPlanQuest ? <span className="pill">{primaryPlanQuest.focusMinutes} {copy.common.minutes}</span> : null}
           </div>
-          <div className="form-grid portfolio-form-grid">
-            <label className="field">
-              <span>{copy.today.fields.category}</span>
-              <select className="input" value={sessionForm.category} onChange={(event) => setSessionForm((current) => ({ ...current, category: event.target.value, mainConnection: event.target.value === "main" ? "direct" : current.mainConnection }))}>
-                <option value="main">{getLabel(locale, "main")}</option>
-                <option value="improve">{getLabel(locale, "improve")}</option>
-                <option value="admin">{getLabel(locale, "admin")}</option>
-                <option value="other">{getLabel(locale, "other")}</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>{copy.today.fields.quest}</span>
-              <select className="input" value={sessionForm.questId} onChange={(event) => setSessionForm((current) => ({ ...current, questId: event.target.value }))}>
-                {state.currentQuests.map((quest) => (
-                  <option key={quest.id} value={quest.id}>
-                    {quest.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {sessionForm.category !== "main" ? (
-              <label className="field">
-                <span>{copy.today.fields.mainConnection}</span>
-                <select className="input" value={sessionForm.mainConnection} onChange={(event) => setSessionForm((current) => ({ ...current, mainConnection: event.target.value }))}>
-                  <option value="direct">{getLabel(locale, "direct")}</option>
-                  <option value="supporting">{getLabel(locale, "supporting")}</option>
-                  <option value="unclear">{getLabel(locale, "unclear")}</option>
-                </select>
-              </label>
-            ) : null}
-            <label className="field">
-              <span>{copy.today.fields.timebox}</span>
-              <input className="input" min={5} max={180} type="number" value={sessionForm.timeboxMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, timeboxMinutes: Number(event.target.value) }))} />
-            </label>
-            <label className="field field--full">
-              <span>{copy.today.fields.artifact}</span>
-              <textarea className="textarea" rows={2} value={sessionForm.artifactCommitment} onChange={(event) => setSessionForm((current) => ({ ...current, artifactCommitment: event.target.value }))} placeholder={copy.today.fields.artifactPlaceholder} />
-            </label>
-            <label className="field field--full">
-              <span>{copy.today.fields.doneWhen}</span>
-              <textarea className="textarea" rows={2} value={sessionForm.doneWhen} onChange={(event) => setSessionForm((current) => ({ ...current, doneWhen: event.target.value }))} placeholder={copy.today.fields.doneWhenPlaceholder} />
-            </label>
-          </div>
-          <div className="button-row">
-            <button className="button" disabled={isPending || !!state.currentWorkSession || !sessionForm.artifactCommitment.trim() || !sessionForm.doneWhen.trim()} onClick={handleSessionGate} type="button">
-              {copy.today.buttons.runGate}
-            </button>
-          </div>
-          {pendingGateDecision ? (
+        </div>
+        <div className="stack-md">
+          <p>{primaryPlanQuest?.successHint ?? copy.today.fallbackNotes.needsSessionStart}</p>
+          {state.currentWorkSession ? (
             <div className="queue-card">
               <div className="queue-card__header">
                 <div>
-                  <div className="pill-row">
-                    <StatusPill label={pendingGateDecision.mode} />
-                    <StatusPill label={pendingGateDecision.mainConnection} />
-                  </div>
-                  <h3>{pendingGateDecision.artifactCommitment}</h3>
-                  <p className="muted">{pendingGateDecision.rationale}</p>
+                  <p className="eyebrow">{uiCopy.primaryAction}</p>
+                  <h3>{activeDecision?.artifactCommitment || state.focusGoal.title}</h3>
+                  <p className="muted">{uiCopy.activeSessionLead}</p>
                 </div>
+                <StatusPill label={state.currentWorkSession.category} />
               </div>
-              <p><strong>{copy.today.labels.doneWhen}:</strong> {pendingGateDecision.doneWhen}</p>
-              <p><strong>{copy.today.labels.timebox}:</strong> {pendingGateDecision.timeboxMinutes} {copy.common.minutes}</p>
+              <div className="pill-row">
+                <span className="pill">{state.currentWorkSession.plannedMinutes} {copy.common.minutes}</span>
+                {activeDecision ? <StatusPill label={activeDecision.mode} /> : null}
+              </div>
+              <label className="field field--full">
+                <span>{copy.today.fields.artifactLeft}</span>
+                <textarea className="textarea" rows={2} value={finishArtifactNote} onChange={(event) => setFinishArtifactNote(event.target.value)} placeholder={copy.today.fields.artifactLeftPlaceholder} />
+              </label>
               <div className="button-row">
-                <button className="button" disabled={isPending} onClick={() => confirmSessionStart(pendingGateDecision)} type="button">
-                  {copy.today.buttons.confirmStart}
+                <button className="button" disabled={isPending} onClick={handleFinishSession} type="button">
+                  {copy.today.buttons.finishSession}
                 </button>
-                {pendingGateDecision.mode === "avoidant" ? (
-                  <Link className="button button--secondary" href="/return">
-                    {copy.today.buttons.openReturnInstead}
-                  </Link>
-                ) : null}
               </div>
             </div>
-          ) : null}
-        </SectionCard>
-      )}
+          ) : (
+            <div className="queue-card">
+              <div className="queue-card__header">
+                <div>
+                  <p className="eyebrow">{uiCopy.primaryAction}</p>
+                  <h3>{copy.today.sessionStartTitle}</h3>
+                  <p className="muted">{uiCopy.prepareSessionLead}</p>
+                </div>
+              </div>
+              <div className="button-row">
+                <button
+                  className="button"
+                  onClick={() => {
+                    setSessionForm((current) => {
+                      const currentQuestExists = state.currentQuests.some((quest) => quest.id === current.questId);
+                      return currentQuestExists ? current : defaultSessionForm(suggestedQuestId);
+                    });
+                    setBlockerForm((current) => ({
+                      ...current,
+                      relatedQuestId: current.relatedQuestId && state.currentQuests.some((quest) => quest.id === current.relatedQuestId)
+                        ? current.relatedQuestId
+                        : suggestedQuestId,
+                    }));
+                    setShowSessionPlanner((current) => !current);
+                  }}
+                  type="button"
+                >
+                  {showSessionPlanner ? uiCopy.closeSession : uiCopy.openSession}
+                </button>
+              </div>
+
+              {showSessionPlanner ? (
+                <div className="stack-lg">
+                  <div className="form-grid portfolio-form-grid">
+                    <label className="field">
+                      <span>{copy.today.fields.category}</span>
+                      <select className="input" value={sessionForm.category} onChange={(event) => setSessionForm((current) => ({ ...current, category: event.target.value, mainConnection: event.target.value === "main" ? "direct" : current.mainConnection }))}>
+                        <option value="main">{getLabel(locale, "main")}</option>
+                        <option value="improve">{getLabel(locale, "improve")}</option>
+                        <option value="admin">{getLabel(locale, "admin")}</option>
+                        <option value="other">{getLabel(locale, "other")}</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>{copy.today.fields.quest}</span>
+                      <select className="input" value={sessionForm.questId} onChange={(event) => setSessionForm((current) => ({ ...current, questId: event.target.value }))}>
+                        {state.currentQuests.map((quest) => (
+                          <option key={quest.id} value={quest.id}>
+                            {quest.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {sessionForm.category !== "main" ? (
+                      <label className="field">
+                        <span>{copy.today.fields.mainConnection}</span>
+                        <select className="input" value={sessionForm.mainConnection} onChange={(event) => setSessionForm((current) => ({ ...current, mainConnection: event.target.value }))}>
+                          <option value="direct">{getLabel(locale, "direct")}</option>
+                          <option value="supporting">{getLabel(locale, "supporting")}</option>
+                          <option value="unclear">{getLabel(locale, "unclear")}</option>
+                        </select>
+                      </label>
+                    ) : null}
+                    <label className="field">
+                      <span>{copy.today.fields.timebox}</span>
+                      <input className="input" max={180} min={5} type="number" value={sessionForm.timeboxMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, timeboxMinutes: Number(event.target.value) }))} />
+                    </label>
+                    <label className="field field--full">
+                      <span>{copy.today.fields.artifact}</span>
+                      <textarea className="textarea" rows={2} value={sessionForm.artifactCommitment} onChange={(event) => setSessionForm((current) => ({ ...current, artifactCommitment: event.target.value }))} placeholder={copy.today.fields.artifactPlaceholder} />
+                    </label>
+                    <label className="field field--full">
+                      <span>{copy.today.fields.doneWhen}</span>
+                      <textarea className="textarea" rows={2} value={sessionForm.doneWhen} onChange={(event) => setSessionForm((current) => ({ ...current, doneWhen: event.target.value }))} placeholder={copy.today.fields.doneWhenPlaceholder} />
+                    </label>
+                  </div>
+                  <div className="button-row">
+                    <button className="button" disabled={isPending || !!state.currentWorkSession || !sessionForm.artifactCommitment.trim() || !sessionForm.doneWhen.trim()} onClick={handleSessionGate} type="button">
+                      {copy.today.buttons.runGate}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {pendingGateDecision ? (
+                <div className="queue-card">
+                  <div className="queue-card__header">
+                    <div>
+                      <div className="pill-row">
+                        <StatusPill label={pendingGateDecision.mode} />
+                        <StatusPill label={pendingGateDecision.mainConnection} />
+                      </div>
+                      <h3>{pendingGateDecision.artifactCommitment}</h3>
+                      <p className="muted">{pendingGateDecision.rationale}</p>
+                    </div>
+                  </div>
+                  <p><strong>{copy.today.labels.doneWhen}:</strong> {pendingGateDecision.doneWhen}</p>
+                  <p><strong>{copy.today.labels.timebox}:</strong> {pendingGateDecision.timeboxMinutes} {copy.common.minutes}</p>
+                  <div className="button-row">
+                    <button className="button" disabled={isPending} onClick={() => confirmSessionStart(pendingGateDecision)} type="button">
+                      {copy.today.buttons.confirmStart}
+                    </button>
+                    {pendingGateDecision.mode === "avoidant" ? (
+                      <Link className="button button--secondary" href="/return">
+                        {copy.today.buttons.openReturnInstead}
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      <DisclosureSection
+        eyebrow={copy.today.todayPlanTitle}
+        title={copy.today.todayPlanTitle}
+        summary={planSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+        aside={<StatusPill label={plan.mode} />}
+        actions={(
+          <button className="button button--secondary" disabled={isPending} onClick={handleReplan} type="button">
+            {aiEnabled ? copy.today.replanAi : copy.today.replanHeuristic}
+          </button>
+        )}
+      >
+        {plan.quests.map((quest) => (
+          <div className="quest-plan-card" key={`${quest.questId ?? quest.title}`}>
+            <div className="quest-plan-card__header">
+              <div>
+                <h3>{quest.title}</h3>
+                <p className="muted">{quest.reason}</p>
+              </div>
+              <div className="pill-row">
+                <StatusPill label={quest.status} />
+                <span className="pill">{quest.focusMinutes} {copy.common.minutes}</span>
+              </div>
+            </div>
+            <p>{quest.successHint}</p>
+          </div>
+        ))}
+        <ul className="bullet-list muted-list">
+          {plan.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      </DisclosureSection>
 
       <DisclosureSection
         eyebrow={copy.today.mirrorTitle}
@@ -391,77 +518,6 @@ export function TodayPageClient() {
             {copy.common.openReturn}
           </Link>
         ) : null}
-      </DisclosureSection>
-
-      <DisclosureSection
-        eyebrow={copy.today.todayPlanTitle}
-        title={primaryPlanQuest?.title ?? plan.theme}
-        summary={planSummary}
-        initialOpen={false}
-        openLabel={copy.common.showDetails}
-        closeLabel={copy.common.hideDetails}
-        aside={<StatusPill label={plan.mode} />}
-        actions={
-          <button className="button button--secondary" onClick={handleReplan} disabled={isPending} type="button">
-            {aiEnabled ? copy.today.replanAi : copy.today.replanHeuristic}
-          </button>
-        }
-      >
-        {plan.quests.map((quest) => (
-          <div className="quest-plan-card" key={`${quest.questId ?? quest.title}`}>
-            <div className="quest-plan-card__header">
-              <div>
-                <h3>{quest.title}</h3>
-                <p className="muted">{quest.reason}</p>
-              </div>
-              <div className="pill-row">
-                <StatusPill label={quest.status} />
-                <span className="pill">{quest.focusMinutes} {copy.common.minutes}</span>
-              </div>
-            </div>
-            <p>{quest.successHint}</p>
-          </div>
-        ))}
-        <ul className="bullet-list muted-list">
-          {plan.notes.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
-      </DisclosureSection>
-
-      <DisclosureSection
-        eyebrow={copy.today.sessionsTitle}
-        title={copy.today.sessionsTitle}
-        summary={sessionSummary}
-        initialOpen={false}
-        openLabel={copy.common.showDetails}
-        closeLabel={copy.common.hideDetails}
-      >
-        {state.todayWorkSessions.length ? (
-          <div className="stack-lg">
-            {state.todayWorkSessions.map((session) => {
-              const decision = session.gateDecisionId ? decisionMap.get(session.gateDecisionId) : null;
-              return (
-                <div className="queue-card" key={session.id}>
-                  <div className="queue-card__header">
-                    <div>
-                      <div className="pill-row">
-                        <StatusPill label={session.category} />
-                        {decision ? <StatusPill label={decision.mode} /> : null}
-                      </div>
-                      <h3>{decision?.artifactCommitment || state.currentQuests.find((quest) => quest.id === session.questId)?.title || copy.today.sessionStartTitle}</h3>
-                      <p className="muted">{session.startedAt.slice(11, 16)} - {session.endedAt ? session.endedAt.slice(11, 16) : copy.common.running}</p>
-                    </div>
-                  </div>
-                  <p><strong>{copy.today.labels.doneWhen}:</strong> {decision?.doneWhen || copy.common.noData}</p>
-                  <p><strong>{copy.today.labels.artifactLeft}:</strong> {session.artifactNote || copy.common.noData}</p>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="muted">{copy.today.sessionsEmpty}</p>
-        )}
       </DisclosureSection>
 
       <DisclosureSection
@@ -526,6 +582,41 @@ export function TodayPageClient() {
             <p className="muted">{latestBlocker.suggestedNextStep || copy.common.noData}</p>
           </div>
         ) : null}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={copy.today.sessionsTitle}
+        title={copy.today.sessionsTitle}
+        summary={sessionSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {state.todayWorkSessions.length ? (
+          <div className="stack-lg">
+            {state.todayWorkSessions.map((session) => {
+              const decision = session.gateDecisionId ? decisionMap.get(session.gateDecisionId) : null;
+              return (
+                <div className="queue-card" key={session.id}>
+                  <div className="queue-card__header">
+                    <div>
+                      <div className="pill-row">
+                        <StatusPill label={session.category} />
+                        {decision ? <StatusPill label={decision.mode} /> : null}
+                      </div>
+                      <h3>{decision?.artifactCommitment || state.currentQuests.find((quest) => quest.id === session.questId)?.title || copy.today.sessionStartTitle}</h3>
+                      <p className="muted">{session.startedAt.slice(11, 16)} - {session.endedAt ? session.endedAt.slice(11, 16) : copy.common.running}</p>
+                    </div>
+                  </div>
+                  <p><strong>{copy.today.labels.doneWhen}:</strong> {decision?.doneWhen || copy.common.noData}</p>
+                  <p><strong>{copy.today.labels.artifactLeft}:</strong> {session.artifactNote || copy.common.noData}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="muted">{copy.today.sessionsEmpty}</p>
+        )}
       </DisclosureSection>
     </div>
   );

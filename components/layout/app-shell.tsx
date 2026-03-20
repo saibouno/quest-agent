@@ -14,19 +14,20 @@ export function AppShell({ children }: PropsWithChildren) {
   const { state, aiMode, backendMode, clientStorageMode, deploymentTarget, updateUiPreferences } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
-  const [showEnvironment, setShowEnvironment] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const navItems = [
-    { href: "/portfolio", label: copy.nav.portfolio },
-    { href: "/intake", label: copy.nav.intake },
-    { href: "/map", label: copy.nav.map },
     { href: "/today", label: copy.nav.today },
-    { href: "/return", label: copy.nav.returnFlow },
-    { href: "/review", label: copy.nav.review },
+    { href: "/portfolio", label: copy.nav.portfolio },
   ];
-
   const focusGoalTitle = state.focusGoal?.title ?? copy.portfolio.focusEmpty;
   const nextRestartLabel = state.resumeQueue[0]?.goal?.title ?? state.todaySuggestions[0]?.title ?? copy.common.noData;
   const activeGoalLabel = `${state.portfolioStats.activeGoalCount}/${state.portfolioStats.wipLimit}`;
+  const contextualLinks = [
+    { href: "/map", label: copy.nav.map },
+    { href: "/review", label: copy.nav.review },
+    { href: "/onboarding/intake", label: copy.nav.intake },
+    ...(state.mirrorCard.needsReturn ? [{ href: "/return", label: copy.nav.returnFlow }] : []),
+  ];
 
   async function handleLocaleChange(nextLocale: UiLocale) {
     if (nextLocale === locale) {
@@ -56,37 +57,37 @@ export function AppShell({ children }: PropsWithChildren) {
         </nav>
 
         <div className="sidebar-surface stack-md">
-          <div>
-            <p className="eyebrow">{copy.shell.localeLabel}</p>
-            <div className="button-row">
-              <button className={locale === "ja" ? "button" : "button button--ghost"} onClick={() => void handleLocaleChange("ja")} type="button">
-                {copy.shell.languageJa}
-              </button>
-              <button className={locale === "en" ? "button" : "button button--ghost"} onClick={() => void handleLocaleChange("en")} type="button">
-                {copy.shell.languageEn}
-              </button>
-            </div>
+          <div className="button-row">
+            <button className="button button--ghost" onClick={() => setShowDetails((current) => !current)} type="button">
+              {showDetails ? copy.common.hideDetails : copy.common.showDetails}
+            </button>
           </div>
 
-          <div className="stack-md">
-            <div>
-              <p className="eyebrow">{copy.shell.mirror}</p>
-              <strong>{state.mirrorCard.headline}</strong>
-              <p className="muted">{copy.shell.focus}: {focusGoalTitle}</p>
-              <p className="muted">{copy.shell.nextRestart}: {nextRestartLabel}</p>
-            </div>
-            <div className="button-row">
-              <span className="pill pill--active">{copy.shell.activeGoalsPill} {activeGoalLabel}</span>
-              {state.mirrorCard.needsReturn ? (
-                <Link className="button button--secondary" href="/return">
-                  {copy.common.openReturn}
-                </Link>
-              ) : null}
-              <button className="button button--ghost" onClick={() => setShowEnvironment((current) => !current)} type="button">
-                {showEnvironment ? copy.common.hideDetails : copy.common.showDetails}
-              </button>
-            </div>
-            {showEnvironment ? (
+          {showDetails ? (
+            <div className="stack-lg">
+              <div>
+                <p className="eyebrow">{copy.shell.localeLabel}</p>
+                <div className="button-row">
+                  <button className={locale === "ja" ? "button" : "button button--ghost"} onClick={() => void handleLocaleChange("ja")} type="button">
+                    {copy.shell.languageJa}
+                  </button>
+                  <button className={locale === "en" ? "button" : "button button--ghost"} onClick={() => void handleLocaleChange("en")} type="button">
+                    {copy.shell.languageEn}
+                  </button>
+                </div>
+              </div>
+
+              <div className="stack-md">
+                <div>
+                  <p className="eyebrow">{copy.shell.focus}</p>
+                  <strong>{focusGoalTitle}</strong>
+                  <p className="muted">{copy.shell.nextRestart}: {nextRestartLabel}</p>
+                </div>
+                <div className="pill-row">
+                  <span className="pill pill--active">{copy.shell.activeGoalsPill} {activeGoalLabel}</span>
+                </div>
+              </div>
+
               <div className="stack-md">
                 <p className="eyebrow">{copy.shell.environment}</p>
                 <div className="pill-row">
@@ -96,8 +97,19 @@ export function AppShell({ children }: PropsWithChildren) {
                   <StatusPill label={aiMode} />
                 </div>
               </div>
-            ) : null}
-          </div>
+
+              <div className="stack-md">
+                <p className="eyebrow">{copy.shell.mirror}</p>
+                <div className="button-row">
+                  {contextualLinks.map((item) => (
+                    <Link className="button button--secondary" href={item.href} key={item.href}>
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </aside>
 
@@ -107,14 +119,11 @@ export function AppShell({ children }: PropsWithChildren) {
             <p className="eyebrow">{copy.shell.focus}</p>
             <h2>{focusGoalTitle}</h2>
           </div>
-          <div className="button-row">
-            <span className="pill pill--active">{copy.shell.activeGoals} {activeGoalLabel}</span>
-            {state.mirrorCard.needsReturn ? (
-              <Link className="button button--secondary" href="/return">
-                {copy.common.openReturn}
-              </Link>
-            ) : null}
-          </div>
+          {state.mirrorCard.needsReturn ? (
+            <Link className="button button--secondary" href="/return">
+              {copy.common.openReturn}
+            </Link>
+          ) : null}
         </header>
         {children}
       </main>

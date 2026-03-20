@@ -1,4 +1,4 @@
-﻿import { ReturnPageClient } from "@/components/pages/return-page-client";
+import { ReturnPageClient } from "@/components/pages/return-page-client";
 
 export const dynamic = "force-dynamic";
 

@@ -2,43 +2,102 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { DisclosureSection } from "@/components/shared/disclosure-section";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
 import { getCopy, getLabel, localizeRuntimeError } from "@/lib/quest-agent/copy";
-import type { MapDraft } from "@/lib/quest-agent/types";
+import { findLatestIntakeSnapshot } from "@/lib/quest-agent/derive";
+import type { MapDraft, UiLocale } from "@/lib/quest-agent/types";
 
-export function MapPageClient() {
+function getMapModeCopy(locale: UiLocale, mode: "workspace" | "onboarding") {
+  if (mode === "workspace") {
+    return {
+      eyebrow: getCopy(locale).map.page,
+      noGoalHref: "/portfolio",
+      noGoalLabel: getCopy(locale).map.openPortfolio,
+      snapshotTitle: locale === "ja" ? "Intake メモ" : "Intake note",
+      snapshotLead: locale === "ja" ? "必要なときだけ、goal 作成時の確認メモを見返せます。" : "Reopen the intake confirmation note only when you need it.",
+    };
+  }
+
+  return locale === "ja"
+    ? {
+        eyebrow: "Onboarding",
+        noGoalHref: "/onboarding/intake",
+        noGoalLabel: "Goal Intake に戻る",
+        snapshotTitle: "確認メモ",
+        snapshotLead: "このメモを見ながら最初の route を決めます。",
+      }
+    : {
+        eyebrow: "Onboarding",
+        noGoalHref: "/onboarding/intake",
+        noGoalLabel: "Back to Goal Intake",
+        snapshotTitle: "Confirmation note",
+        snapshotLead: "Use this note to shape the first route.",
+      };
+}
+
+type MapPageClientProps = {
+  mode: "workspace" | "onboarding";
+};
+
+export function MapPageClient({ mode }: MapPageClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { state, aiEnabled, clientStorageMode, generateMap, replaceMap } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale).map;
   const commonCopy = getCopy(locale).common;
+  const modeCopy = getMapModeCopy(locale, mode);
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<MapDraft | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const requestedGoalId = mode === "onboarding" ? searchParams.get("goalId") : null;
+  const selectedGoal = requestedGoalId
+    ? state.goals.find((goal) => goal.id === requestedGoalId) ?? null
+    : state.currentGoal;
+  const selectedMilestones = useMemo(
+    () => (selectedGoal
+      ? state.milestones
+        .filter((milestone) => milestone.goalId === selectedGoal.id)
+        .sort((left, right) => left.sequence - right.sequence)
+      : []),
+    [selectedGoal, state.milestones],
+  );
+  const selectedQuests = useMemo(
+    () => (selectedGoal
+      ? state.quests
+        .filter((quest) => quest.goalId === selectedGoal.id)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      : []),
+    [selectedGoal, state.quests],
+  );
+  const selectedSnapshot = selectedGoal ? findLatestIntakeSnapshot(state.events, selectedGoal.id) : null;
+
   const storedQuestCount = useMemo(
-    () => state.currentMilestones.reduce((sum, milestone) => sum + state.currentQuests.filter((quest) => quest.milestoneId === milestone.id).length, 0),
-    [state.currentMilestones, state.currentQuests],
+    () => selectedMilestones.reduce((sum, milestone) => sum + selectedQuests.filter((quest) => quest.milestoneId === milestone.id).length, 0),
+    [selectedMilestones, selectedQuests],
   );
 
-  if (!state.currentGoal) {
+  if (!selectedGoal) {
     return (
       <SectionCard>
-        <p className="eyebrow">{copy.page}</p>
+        <p className="eyebrow">{modeCopy.eyebrow}</p>
         <h1>{copy.noFocusTitle}</h1>
         <p className="muted">{copy.noFocusBody}</p>
-        <Link className="button" href="/portfolio">
-          {copy.openPortfolio}
+        <Link className="button" href={modeCopy.noGoalHref}>
+          {modeCopy.noGoalLabel}
         </Link>
       </SectionCard>
     );
   }
+
+  const goal = selectedGoal;
 
   function updateMilestone(index: number, field: "title" | "description" | "targetDate", value: string) {
     setDraft((current) => {
@@ -85,15 +144,15 @@ export function MapPageClient() {
     startTransition(async () => {
       try {
         const nextDraft = await generateMap({
-          goalId: state.currentGoal!.id,
-          title: state.currentGoal!.title,
-          description: state.currentGoal!.description,
-          why: state.currentGoal!.why,
-          deadline: state.currentGoal!.deadline,
-          successCriteria: state.currentGoal!.successCriteria,
-          currentState: state.currentGoal!.currentState,
-          constraints: state.currentGoal!.constraints,
-          concerns: state.currentGoal!.concerns,
+          goalId: goal.id,
+          title: goal.title,
+          description: goal.description,
+          why: goal.why,
+          deadline: goal.deadline,
+          successCriteria: goal.successCriteria,
+          currentState: goal.currentState,
+          constraints: goal.constraints,
+          concerns: goal.concerns,
           locale,
         });
         setDraft(nextDraft);
@@ -113,7 +172,7 @@ export function MapPageClient() {
     startTransition(async () => {
       try {
         await replaceMap({
-          goalId: state.currentGoal!.id,
+          goalId: goal.id,
           routeSummary: draft.routeSummary,
           milestones: draft.milestones,
           mode: draft.mode,
@@ -133,15 +192,15 @@ export function MapPageClient() {
     <div className="page-stack">
       <section className="hero-panel surface">
         <div>
-          <p className="eyebrow">{copy.page}</p>
+          <p className="eyebrow">{modeCopy.eyebrow}</p>
           <h1>{copy.heroTitle}</h1>
           {copy.lead ? <p className="lead">{copy.lead}</p> : null}
         </div>
         <div className="hero-panel__actions">
-          <button className="button button--secondary" onClick={handleGenerate} disabled={isPending} type="button">
+          <button className="button button--secondary" disabled={isPending} onClick={handleGenerate} type="button">
             {aiEnabled ? copy.generateAi : copy.generateHeuristic}
           </button>
-          <button className="button" onClick={handleSave} disabled={isPending || !draft} type="button">
+          <button className="button" disabled={isPending || !draft} onClick={handleSave} type="button">
             {copy.saveRoute}
           </button>
         </div>
@@ -150,33 +209,89 @@ export function MapPageClient() {
       {message ? <p className="feedback feedback--ok">{message}</p> : null}
       {error ? <p className="feedback feedback--error">{error}</p> : null}
 
+      {mode === "onboarding" && selectedSnapshot ? (
+        <SectionCard>
+          <div className="section-header">
+            <div>
+              <p className="eyebrow">{modeCopy.snapshotTitle}</p>
+              <h2>{goal.title}</h2>
+              <p className="muted">{modeCopy.snapshotLead}</p>
+            </div>
+            <StatusPill label={selectedSnapshot.refinementMode} />
+          </div>
+          <div className="stack-lg">
+            <div>
+              <p className="eyebrow">{copy.fields.routeSummary}</p>
+              <p>{selectedSnapshot.firstRouteNote || commonCopy.noData}</p>
+            </div>
+            <div>
+              <p className="eyebrow">{getCopy(locale).intake.draftLabels.questions}</p>
+              {selectedSnapshot.openQuestions.length ? (
+                <ul className="bullet-list">
+                  {selectedSnapshot.openQuestions.map((question) => (
+                    <li key={question}>{question}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">{commonCopy.noData}</p>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+      ) : null}
+
       <SectionCard>
         <div className="section-header">
           <div>
             <p className="eyebrow">{copy.storedRoute}</p>
-            <h2>{state.currentGoal.title}</h2>
+            <h2>{goal.title}</h2>
             <p className="muted">{copy.storedLead}</p>
           </div>
-          <StatusPill label={state.currentGoal.status} />
+          <StatusPill label={goal.status} />
         </div>
         <div className="pill-row">
-          <span className="pill">{copy.milestoneLabel} {state.currentMilestones.length}</span>
+          <span className="pill">{copy.milestoneLabel} {selectedMilestones.length}</span>
           <span className="pill">{copy.fields.questTitle} {storedQuestCount}</span>
         </div>
       </SectionCard>
 
+      {mode === "workspace" && selectedSnapshot ? (
+        <DisclosureSection
+          eyebrow={modeCopy.snapshotTitle}
+          title={modeCopy.snapshotTitle}
+          summary={selectedSnapshot.firstRouteNote || modeCopy.snapshotLead}
+          initialOpen={false}
+          openLabel={commonCopy.showDetails}
+          closeLabel={commonCopy.hideDetails}
+          aside={<StatusPill label={selectedSnapshot.refinementMode} />}
+        >
+          <div className="stack-md">
+            <p>{selectedSnapshot.firstRouteNote || commonCopy.noData}</p>
+            {selectedSnapshot.openQuestions.length ? (
+              <ul className="bullet-list">
+                {selectedSnapshot.openQuestions.map((question) => (
+                  <li key={question}>{question}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">{modeCopy.snapshotLead}</p>
+            )}
+          </div>
+        </DisclosureSection>
+      ) : null}
+
       <DisclosureSection
         eyebrow={copy.storedRoute}
         title={copy.storedRoute}
-        summary={state.currentMilestones.length ? `${copy.milestoneLabel} ${state.currentMilestones.length} ・ ${copy.fields.questTitle} ${storedQuestCount}` : copy.emptyStored}
+        summary={selectedMilestones.length ? `${copy.milestoneLabel} ${selectedMilestones.length} / ${copy.fields.questTitle} ${storedQuestCount}` : copy.emptyStored}
         initialOpen={false}
         openLabel={commonCopy.showDetails}
         closeLabel={commonCopy.hideDetails}
       >
-        {state.currentMilestones.length ? (
+        {selectedMilestones.length ? (
           <div className="stack-lg">
-            {state.currentMilestones.map((milestone) => {
-              const quests = state.currentQuests.filter((quest) => quest.milestoneId === milestone.id);
+            {selectedMilestones.map((milestone) => {
+              const quests = selectedQuests.filter((quest) => quest.milestoneId === milestone.id);
               return (
                 <div className="milestone-card" key={milestone.id}>
                   <div className="milestone-card__header">
@@ -210,15 +325,16 @@ export function MapPageClient() {
         )}
       </DisclosureSection>
 
-      <DisclosureSection
-        eyebrow={copy.draftTitle}
-        title={copy.draftLead}
-        summary={draft ? draft.routeSummary : copy.emptyDraft}
-        initialOpen={Boolean(draft)}
-        openLabel={commonCopy.showDetails}
-        closeLabel={commonCopy.hideDetails}
-        aside={draft ? <StatusPill label={draft.mode} /> : null}
-      >
+      <SectionCard>
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">{copy.draftTitle}</p>
+            <h2>{copy.draftLead}</h2>
+            <p className="muted">{draft ? draft.routeSummary : copy.emptyDraft}</p>
+          </div>
+          {draft ? <StatusPill label={draft.mode} /> : null}
+        </div>
+
         {draft ? (
           <div className="stack-lg">
             <label className="field field--full">
@@ -293,7 +409,7 @@ export function MapPageClient() {
         ) : (
           <p className="muted">{copy.emptyDraft}</p>
         )}
-      </DisclosureSection>
+      </SectionCard>
     </div>
   );
 }
