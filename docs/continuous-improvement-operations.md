@@ -3,6 +3,10 @@
 ## Goal
 Keep one lightweight preview for change checks and one stable preview for daily dogfooding, without mixing their persistence contracts.
 
+This document covers Quest Agent-specific preview, persistence, backup, and rollback operations.
+Shared Codex workflow lives in `C:\Users\oatyu\.codex\AGENTS.md`.
+Repo-specific workflow overrides live in `AGENTS.md`.
+
 ## Environment roles
 - `main`
   - Integration source of truth for implementation changes
@@ -41,7 +45,7 @@ It only defines how Quest Agent moves work through `main`, `preview/demo`, and `
 - never expose `SUPABASE_SERVICE_ROLE_KEY` to the client bundle
 
 ## Promotion flow
-1. Develop on `codex/*` and merge into `main`.
+1. Land implementation changes in `main` first.
 2. Reflect `main` into `preview/demo` for lightweight validation.
 3. Promote only confirmed changes from `preview/demo` into `preview/dogfood`.
 4. Do not develop directly on `preview/demo` or `preview/dogfood`.
@@ -52,93 +56,6 @@ Before promoting into `preview/dogfood`, confirm at least:
 - `resume`
 - `return`
 - `review`
-
-## Auto-merge policy
-Auto-merge is for low-risk themes only.
-Use it to remove GitHub handling overhead, not to skip review on risky changes.
-
-### Auto-merge eligible
-- docs-only changes
-- Japanese or English copy-only changes
-- isolated polish on non-shared-core pages or components
-- PRs that are `mergeable` and have the required checks green
-
-### Auto-merge blocked
-- changes to shared-core files
-- storage, Supabase, preview runtime, or deploy behavior changes
-- schema or migration changes
-- root route, shell, or global navigation changes unless a human explicitly approves
-- destructive or irreversible behavior changes
-- anything that crosses an approval boundary
-
-### Auto-merge behavior
-- keep the standard merge mode: `Create a merge commit`
-- delete the remote branch after merge unless the theme is `remote_only_reference`
-- do not auto-merge if `preview/dogfood` promotion rules would still require manual confirmation
-
-### Protected areas in Quest Agent
-- `lib/quest-agent/types.ts`
-- `lib/quest-agent/transitions.ts`
-- `lib/quest-agent/server/store.ts`
-- `components/layout/app-shell.tsx`
-- `app/page.tsx`
-
-## Theme workflow
-Use one long-lived "mothership" chat to keep product intent, theme boundaries, and merge order aligned.
-Use short-lived implementation chats only for bounded themes.
-
-### Theme contract
-Every theme should begin with:
-- theme name
-- branch and worktree path
-- scope
-- out of scope
-- done condition
-- expected end state
-- owned files and locked files
-
-Expected end state must be one of:
-- `merge_and_delete`
-- `remote_only_reference`
-- `discard`
-
-### Mothership chat responsibilities
-- define the next theme before a new worktree or chat is created
-- assign a single theme to each worktree and chat
-- decide which changes may run in parallel and which must be serialized
-- publish the handoff summary: goal, non-goals, done criteria, and owned files
-- decide merge order and tell still-open chats when `main` has changed underneath them
-
-### Implementation chat responsibilities
-- stay inside the assigned theme and file ownership
-- avoid expanding scope without bringing the decision back to the mothership chat
-- keep branches short-lived: commit, push, summarize, archive
-- re-read `main` assumptions after any upstream merge that touches shared behavior
-
-### Shared-core lock
-Do not edit these areas in parallel unless the mothership chat explicitly serializes the work:
-- `lib/quest-agent/types.ts`
-- `lib/quest-agent/transitions.ts`
-- `lib/quest-agent/server/store.ts`
-- `components/layout/app-shell.tsx`
-- `app/page.tsx`
-
-Shared-core changes should land in this order:
-1. foundation and shared contracts
-2. page or feature implementation
-3. copy, polish, and density tuning
-
-### Handoff minimum
-Every implementation chat should begin with a small handoff that fixes:
-- theme name
-- base branch
-- worktree path
-- branch name
-- goal
-- non-goals
-- done criteria
-- expected end state
-- owned files or locked files
 
 ## Guardrails
 ### Supabase target pin
