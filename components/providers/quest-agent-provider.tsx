@@ -39,6 +39,7 @@ import type {
   BuildImproveDecision,
   ClientStorageHint,
   ClientStorageMode,
+  DeploymentTarget,
   FocusGoalInput,
   GenerateMapInput,
   Goal,
@@ -74,6 +75,7 @@ interface QuestAgentContextValue {
   state: AppState;
   clientStorageMode: ClientStorageMode;
   backendMode: BackendModeLabel;
+  deploymentTarget: DeploymentTarget;
   aiMode: "ai" | "heuristic";
   aiEnabled: boolean;
   saveGoal: (input: GoalInput) => Promise<Goal>;
@@ -120,11 +122,13 @@ export function QuestAgentProvider({
   initialState,
   storageHint,
   initialBackendMode,
+  initialDeploymentTarget,
   aiMode,
 }: PropsWithChildren<{
   initialState: AppState;
   storageHint: ClientStorageHint;
   initialBackendMode: BackendModeLabel;
+  initialDeploymentTarget: DeploymentTarget;
   aiMode: "ai" | "heuristic";
 }>) {
   const [state, setState] = useState(initialState);
@@ -428,6 +432,7 @@ export function QuestAgentProvider({
     state,
     clientStorageMode,
     backendMode: clientStorageMode === "browser-local" ? "browser-local" : initialBackendMode,
+    deploymentTarget: initialDeploymentTarget,
     aiMode,
     aiEnabled: aiMode === "ai",
     saveGoal,

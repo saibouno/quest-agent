@@ -8,8 +8,10 @@ node_modules
 .env.production.local
 coverage
 dist
+backups/
 data/*.json
 !data/.gitkeep
+supabase/.temp/
 
 tsconfig.tsbuildinfo
 chatgpt-tread.md2.md
