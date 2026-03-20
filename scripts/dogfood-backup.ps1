@@ -45,6 +45,7 @@ try {
   }
   $sourceMetadata = Get-SourceDatabaseMetadata -DbUrl $env:SUPABASE_DB_URL
   $projectRef = Get-ProjectRefFromSupabaseUrl -SupabaseUrl $env:SUPABASE_URL
+  $postgresMajorVersion = Get-PostgresMajorVersion -ServerVersionNum ([string]$sourceMetadata.serverVersionNum)
 
   Push-Location $repoRoot
   try {
@@ -55,16 +56,18 @@ try {
 
     Invoke-CheckedCommand `
       -FilePath $npx `
-      -Arguments @("supabase", "db", "dump", "--db-url", $env:SUPABASE_DB_URL, "--file", $schemaPath) `
+      -Arguments @("supabase", "db", "dump", "--db-url", $env:SUPABASE_DB_URL, "--file", $schemaPath, "--schema", "public") `
       -ErrorMessage "Could not create schema.sql."
 
     Invoke-CheckedCommand `
       -FilePath $npx `
-      -Arguments @("supabase", "db", "dump", "--db-url", $env:SUPABASE_DB_URL, "--file", $dataPath, "--data-only", "--use-copy") `
+      -Arguments @("supabase", "db", "dump", "--db-url", $env:SUPABASE_DB_URL, "--file", $dataPath, "--schema", "public", "--data-only", "--use-copy") `
       -ErrorMessage "Could not create data.sql."
   } finally {
     Pop-Location
   }
+
+  $restoreCheckImage = Resolve-RestoreCheckImage -MajorVersion $postgresMajorVersion
 
   $manifest = [ordered]@{
     backupId = $backupId
@@ -75,7 +78,8 @@ try {
     postgres = [ordered]@{
       serverVersion = $sourceMetadata.serverVersion
       serverVersionNum = $sourceMetadata.serverVersionNum
-      majorVersion = (Get-PostgresMajorVersion -ServerVersionNum ([string]$sourceMetadata.serverVersionNum))
+      majorVersion = $postgresMajorVersion
+      restoreCheckImage = $restoreCheckImage
       extensions = @($sourceMetadata.extensions)
     }
     git = [ordered]@{

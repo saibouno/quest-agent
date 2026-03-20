@@ -86,21 +86,48 @@ function Invoke-CheckedCommand {
   )
 
   if ($CaptureOutput) {
-    $output = & $FilePath @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-      $detail = if ($output) { ($output | Out-String).Trim() } else { "exit code $exitCode" }
-      if (-not $ErrorMessage) {
-        $ErrorMessage = "Command failed: $FilePath $($Arguments -join ' ')"
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+
+    try {
+      $previousErrorActionPreference = $ErrorActionPreference
+      $ErrorActionPreference = "Continue"
+      try {
+        & $FilePath @Arguments 1> $stdoutPath 2> $stderrPath
+        $exitCode = $LASTEXITCODE
       }
-      throw "$ErrorMessage`n$detail"
-    }
+      finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+      }
 
-    if ($output -is [System.Array]) {
-      return ($output -join [Environment]::NewLine).Trim()
-    }
+      $stdout = if (Test-Path -LiteralPath $stdoutPath) {
+        Get-Content -LiteralPath $stdoutPath -Raw
+      }
+      else {
+        ""
+      }
 
-    return [string]$output
+      $stderr = if (Test-Path -LiteralPath $stderrPath) {
+        Get-Content -LiteralPath $stderrPath -Raw
+      }
+      else {
+        ""
+      }
+
+      if ($exitCode -ne 0) {
+        $detailParts = @(@($stdout, $stderr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $detail = if ($detailParts.Length -gt 0) { ($detailParts -join [Environment]::NewLine).Trim() } else { "exit code $exitCode" }
+        if (-not $ErrorMessage) {
+          $ErrorMessage = "Command failed: $FilePath $($Arguments -join ' ')"
+        }
+        throw "$ErrorMessage`n$detail"
+      }
+
+      return $stdout.Trim()
+    }
+    finally {
+      Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
   }
 
   & $FilePath @Arguments
@@ -214,14 +241,57 @@ function Get-ArtifactMetadata {
   }
 }
 
-function Get-SourceMetadataSql {
-  $tableCountSql = (($script:QuestAgentManagedTables | ForEach-Object {
-    "SELECT '$($_)' AS table_name, CASE WHEN to_regclass('public.$_') IS NULL THEN 0 ELSE (SELECT COUNT(*)::bigint FROM public.$_) END AS row_count"
-  }) -join ([Environment]::NewLine + "UNION ALL" + [Environment]::NewLine))
+function Get-StructuredJsonFromCommandOutput {
+  param(
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyString()]
+    [string]$Output
+  )
 
-  return @"
-WITH table_counts AS (
-$tableCountSql
+  $jsonLine = @(
+    $Output -split "\r?\n" |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { $_ -match '^[\{\[]' }
+  ) | Select-Object -Last 1
+
+  if ([string]::IsNullOrWhiteSpace($jsonLine)) {
+    throw "Expected JSON output, but no JSON payload was found."
+  }
+
+  return ($jsonLine | ConvertFrom-Json)
+}
+
+function Get-SourceMetadataSql {
+  $tableValuesSql = (($script:QuestAgentManagedTables | ForEach-Object {
+    "('$($_)')"
+  }) -join ("," + [Environment]::NewLine + "    "))
+
+  return (@'
+CREATE OR REPLACE FUNCTION pg_temp.quest_agent_count_rows(target_table_name text)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  row_count bigint;
+BEGIN
+  IF to_regclass(format('public.%I', target_table_name)) IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  EXECUTE format('SELECT COUNT(*)::bigint FROM public.%I', target_table_name) INTO row_count;
+  RETURN COALESCE(row_count, 0);
+END;
+$$;
+
+WITH expected_tables(table_name) AS (
+  VALUES
+    {0}
+),
+table_counts AS (
+  SELECT
+    expected.table_name,
+    pg_temp.quest_agent_count_rows(expected.table_name) AS row_count
+  FROM expected_tables AS expected
 )
 SELECT json_build_object(
   'serverVersion', current_setting('server_version'),
@@ -229,7 +299,7 @@ SELECT json_build_object(
   'extensions', COALESCE((SELECT json_agg(extname ORDER BY extname) FROM pg_extension), '[]'::json),
   'tables', COALESCE((SELECT json_agg(json_build_object('name', table_name, 'rowCount', row_count) ORDER BY table_name) FROM table_counts), '[]'::json)
 );
-"@
+'@) -f $tableValuesSql
 }
 
 function Get-SourceDatabaseMetadata {
@@ -247,7 +317,7 @@ function Get-SourceDatabaseMetadata {
     -CaptureOutput `
     -ErrorMessage "Could not read metadata from the dogfood database."
 
-  return ($output | ConvertFrom-Json)
+  return (Get-StructuredJsonFromCommandOutput -Output $output)
 }
 
 function Get-PostgresMajorVersion {
@@ -261,6 +331,33 @@ function Get-PostgresMajorVersion {
   }
 
   return [int]$ServerVersionNum.Substring(0, $ServerVersionNum.Length - 4)
+}
+
+function Resolve-RestoreCheckImage {
+  param(
+    [Parameter(Mandatory = $true)]
+    [int]$MajorVersion
+  )
+
+  $docker = Assert-DockerAvailable
+  $output = Invoke-CheckedCommand `
+    -FilePath $docker `
+    -Arguments @("images", "public.ecr.aws/supabase/postgres", "--format", "{{.Repository}}:{{.Tag}}") `
+    -CaptureOutput `
+    -ErrorMessage "Could not inspect local Supabase Postgres images."
+
+  $candidates = @(
+    $output -split "\r?\n" |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      Where-Object { $_ -match ":$MajorVersion(\.|$)" }
+  )
+
+  if ($candidates.Length -gt 0) {
+    return ($candidates | Select-Object -First 1)
+  }
+
+  return "postgres:$MajorVersion"
 }
 
 function Resolve-BackupDirectory {
@@ -341,6 +438,30 @@ function Assert-BackupArtifacts {
       throw "Size mismatch for $artifactName ($artifactPath)."
     }
   }
+}
+
+function Get-ExtensionSchemasFromSchemaDump {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SchemaPath
+  )
+
+  if (-not (Test-Path -LiteralPath $SchemaPath -PathType Leaf)) {
+    throw "Schema dump not found: $SchemaPath"
+  }
+
+  $matches = Select-String -LiteralPath $SchemaPath -Pattern 'CREATE EXTENSION IF NOT EXISTS "[^"]+" WITH SCHEMA "([^"]+)";' -AllMatches
+  $schemas = foreach ($match in $matches) {
+    foreach ($capture in $match.Matches) {
+      $capture.Groups[1].Value
+    }
+  }
+
+  return @(
+    $schemas |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      Sort-Object -Unique
+  )
 }
 
 function Start-LocalPostgresContainer {
@@ -472,17 +593,40 @@ function Invoke-PsqlInContainer {
 }
 
 function Get-TableCountVerificationSql {
-  $tableCountSql = (($script:QuestAgentManagedTables | ForEach-Object {
-    "SELECT '$($_)' AS table_name, CASE WHEN to_regclass('public.$_') IS NULL THEN 0 ELSE (SELECT COUNT(*)::bigint FROM public.$_) END AS row_count"
-  }) -join ([Environment]::NewLine + "UNION ALL" + [Environment]::NewLine))
+  $tableValuesSql = (($script:QuestAgentManagedTables | ForEach-Object {
+    "('$($_)')"
+  }) -join ("," + [Environment]::NewLine + "    "))
 
-  return @"
-WITH table_counts AS (
-$tableCountSql
+  return (@'
+CREATE OR REPLACE FUNCTION pg_temp.quest_agent_count_rows(target_table_name text)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  row_count bigint;
+BEGIN
+  IF to_regclass(format('public.%I', target_table_name)) IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  EXECUTE format('SELECT COUNT(*)::bigint FROM public.%I', target_table_name) INTO row_count;
+  RETURN COALESCE(row_count, 0);
+END;
+$$;
+
+WITH expected_tables(table_name) AS (
+  VALUES
+    {0}
+),
+table_counts AS (
+  SELECT
+    expected.table_name,
+    pg_temp.quest_agent_count_rows(expected.table_name) AS row_count
+  FROM expected_tables AS expected
 )
 SELECT json_agg(json_build_object('name', table_name, 'rowCount', row_count) ORDER BY table_name)
 FROM table_counts;
-"@
+'@) -f $tableValuesSql
 }
 
 function Get-RestoreCleanupSql {
@@ -494,9 +638,9 @@ function Get-RestoreCleanupSql {
     "DROP TYPE IF EXISTS public.$_ CASCADE;"
   }) -join [Environment]::NewLine
 
-  return @"
-$tableDrops
-$typeDrops
+  return (@'
+{0}
+{1}
 DO $$
 DECLARE
   seq_record RECORD;
@@ -511,5 +655,5 @@ BEGIN
     EXECUTE 'DROP SEQUENCE IF EXISTS ' || seq_record.sequence_name || ' CASCADE';
   END LOOP;
 END $$;
-"@
+'@) -f $tableDrops, $typeDrops
 }
