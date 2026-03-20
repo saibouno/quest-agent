@@ -44,7 +44,7 @@ export function IntakePageClient() {
   if (!state.focusGoal) {
     return (
       <SectionCard>
-        <p className="eyebrow">{copy.page}</p>
+        <p className="eyebrow">{rootCopy.intake.page}</p>
         <h1>{rootCopy.portfolio.focusEmpty}</h1>
         <p className="muted">{rootCopy.portfolio.focusBody}</p>
         <Link className="button" href="/portfolio">
@@ -110,7 +110,7 @@ function IntakeEditor({ goal }: { goal: Goal }) {
     setMessage("");
     startTransition(async () => {
       try {
-        const goal = await saveGoal({
+        const savedGoal = await saveGoal({
           id: form.id || undefined,
           title: form.title,
           description: form.description,
@@ -137,7 +137,7 @@ function IntakeEditor({ goal }: { goal: Goal }) {
           router.refresh();
         }
 
-        const hasRoute = state.currentMilestones.length > 0 || state.milestones.some((milestone) => milestone.goalId === goal.id);
+        const hasRoute = state.currentMilestones.length > 0 || state.milestones.some((milestone) => milestone.goalId === savedGoal.id);
         router.push(hasRoute ? "/portfolio" : "/map");
       } catch (nextError) {
         setError(localizeRuntimeError(locale, nextError, copy.errors.save));
