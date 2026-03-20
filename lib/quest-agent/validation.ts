@@ -90,6 +90,12 @@ const reviewFocusCandidateSchema = z.object({
   updatedAt: z.string().trim().min(1),
 });
 
+const intakeSnapshotSchema = z.object({
+  openQuestions: lineArraySchema,
+  firstRouteNote: z.string().trim().default(""),
+  refinementMode: z.enum(["ai", "heuristic"]),
+});
+
 export const goalInputSchema = z.object({
   id: z.string().uuid().optional(),
   title: z.string().trim().min(1, "Goal title is required"),
@@ -103,6 +109,7 @@ export const goalInputSchema = z.object({
   todayCapacity: z.string().trim().default(""),
   status: z.enum(goalStatuses).default("active"),
   refined: z.boolean().optional().default(false),
+  intakeSnapshot: intakeSnapshotSchema.optional(),
 });
 
 export const portfolioSettingsInputSchema = z.object({

@@ -92,7 +92,7 @@ export function ReviewPageClient() {
       <SectionCard>
         <p className="eyebrow">{copy.nav.review}</p>
         <h1>{copy.review.noGoalTitle}</h1>
-        <Link className="button" href="/intake?new=1">
+        <Link className="button" href="/onboarding/intake">
           {copy.review.addGoal}
         </Link>
       </SectionCard>

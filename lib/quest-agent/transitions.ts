@@ -361,6 +361,7 @@ export function saveGoalInState(sourceState: PersistedState, input: GoalInput): 
       title: goal.title,
       refined: input.refined ?? false,
       status: goal.status,
+      ...(input.intakeSnapshot ? { intakeSnapshot: input.intakeSnapshot } : {}),
     }),
   );
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { useQuestAgent } from "@/components/providers/quest-agent-provider";
 import { DisclosureSection } from "@/components/shared/disclosure-section";
@@ -36,17 +37,37 @@ function buildForm(goal: Goal | null) {
 }
 
 export function IntakePageClient() {
+  const { state } = useQuestAgent();
+  const locale = state.uiPreferences.locale;
+  const rootCopy = getCopy(locale);
+
+  if (!state.focusGoal) {
+    return (
+      <SectionCard>
+        <p className="eyebrow">{copy.page}</p>
+        <h1>{rootCopy.portfolio.focusEmpty}</h1>
+        <p className="muted">{rootCopy.portfolio.focusBody}</p>
+        <Link className="button" href="/portfolio">
+          {rootCopy.common.openPortfolio}
+        </Link>
+      </SectionCard>
+    );
+  }
+
+  return <IntakeEditor key={state.focusGoal.id} goal={state.focusGoal} />;
+}
+
+function IntakeEditor({ goal }: { goal: Goal }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const isNewMode = searchParams.get("new") === "1";
   const { state, aiEnabled, clientStorageMode, refineIntake, saveGoal } = useQuestAgent();
   const locale = state.uiPreferences.locale;
-  const copy = getCopy(locale).intake;
+  const rootCopy = getCopy(locale);
+  const copy = rootCopy.intake;
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [refinement, setRefinement] = useState<IntakeRefinement | null>(null);
-  const [form, setForm] = useState(() => buildForm(isNewMode ? null : state.focusGoal));
+  const [form, setForm] = useState(() => buildForm(goal));
 
   function updateField(name: string, value: string) {
     setForm((current) => ({ ...current, [name]: value }));
@@ -89,15 +110,7 @@ export function IntakePageClient() {
     setMessage("");
     startTransition(async () => {
       try {
-        const isEditingExisting = Boolean(form.id);
-        const existingStatus = isEditingExisting ? state.goals.find((goal) => goal.id === form.id)?.status : null;
-        const nextStatus = isEditingExisting
-          ? existingStatus ?? "active"
-          : state.portfolioStats.availableSlots > 0
-            ? "active"
-            : "paused";
-
-        await saveGoal({
+        const goal = await saveGoal({
           id: form.id || undefined,
           title: form.title,
           description: form.description,
@@ -108,24 +121,24 @@ export function IntakePageClient() {
           constraints: stringToLines(form.constraints),
           concerns: form.concerns,
           todayCapacity: form.todayCapacity,
-          status: nextStatus,
+          status: goal.status,
           refined: Boolean(refinement),
+          intakeSnapshot: refinement
+            ? {
+                openQuestions: refinement.openQuestions,
+                firstRouteNote: refinement.firstRouteNote,
+                refinementMode: refinement.mode,
+              }
+            : undefined,
         });
 
-        if (nextStatus === "active") {
-          setMessage(copy.messages.savedActive);
-          if (clientStorageMode === "server-backed") {
-            router.refresh();
-          }
-          router.push("/map");
-          return;
-        }
-
-        setMessage(copy.messages.savedBacklog);
+        setMessage(copy.messages.savedActive);
         if (clientStorageMode === "server-backed") {
           router.refresh();
         }
-        router.push("/portfolio");
+
+        const hasRoute = state.currentMilestones.length > 0 || state.milestones.some((milestone) => milestone.goalId === goal.id);
+        router.push(hasRoute ? "/portfolio" : "/map");
       } catch (nextError) {
         setError(localizeRuntimeError(locale, nextError, copy.errors.save));
       }
@@ -137,14 +150,14 @@ export function IntakePageClient() {
       <section className="hero-panel surface">
         <div>
           <p className="eyebrow">{copy.page}</p>
-          <h1>{isNewMode ? copy.titleNew : copy.titleEdit}</h1>
+          <h1>{copy.titleEdit}</h1>
           {copy.lead ? <p className="lead">{copy.lead}</p> : null}
         </div>
         <div className="hero-panel__actions">
-          <button className="button button--secondary" onClick={handleRefine} disabled={isPending || !form.title.trim()} type="button">
+          <button className="button button--secondary" disabled={isPending || !form.title.trim()} onClick={handleRefine} type="button">
             {aiEnabled ? copy.refineAi : copy.refineHeuristic}
           </button>
-          <button className="button" onClick={handleSave} disabled={isPending || !form.title.trim()} type="button">
+          <button className="button" disabled={isPending || !form.title.trim()} onClick={handleSave} type="button">
             {copy.saveGoal}
           </button>
         </div>
@@ -157,7 +170,7 @@ export function IntakePageClient() {
         <div className="section-header">
           <div>
             <p className="eyebrow">{copy.formTitle}</p>
-            <h2>{isNewMode ? copy.formLeadNew : copy.formLeadEdit}</h2>
+            <h2>{copy.formLeadEdit}</h2>
           </div>
         </div>
 
@@ -206,8 +219,8 @@ export function IntakePageClient() {
         title={copy.draftLead}
         summary={refinement ? refinement.goalSummary : copy.messages.emptyDraft}
         initialOpen={Boolean(refinement)}
-        openLabel={getCopy(locale).common.showDetails}
-        closeLabel={getCopy(locale).common.hideDetails}
+        openLabel={rootCopy.common.showDetails}
+        closeLabel={rootCopy.common.hideDetails}
       >
         {refinement ? (
           <div className="draft-stack">

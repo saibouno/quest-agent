@@ -1,6 +1,5 @@
 ﻿import type { Metadata } from "next";
 
-import { AppShell } from "@/components/layout/app-shell";
 import { QuestAgentProvider } from "@/components/providers/quest-agent-provider";
 import { getCopy } from "@/lib/quest-agent/copy";
 import { getBackendModeLabel, getClientStorageHint, getDeploymentTarget } from "@/lib/quest-agent/server/runtime";
@@ -35,7 +34,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           initialState={state}
           storageHint={storageHint}
         >
-          <AppShell>{children}</AppShell>
+          {children}
         </QuestAgentProvider>
       </body>
     </html>

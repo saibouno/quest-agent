@@ -73,6 +73,7 @@ import type {
 
 interface QuestAgentContextValue {
   state: AppState;
+  stateReady: boolean;
   clientStorageMode: ClientStorageMode;
   backendMode: BackendModeLabel;
   deploymentTarget: DeploymentTarget;
@@ -133,6 +134,7 @@ export function QuestAgentProvider({
 }>) {
   const [state, setState] = useState(initialState);
   const clientStorageMode: ClientStorageMode = storageHint;
+  const [stateReady, setStateReady] = useState(clientStorageMode !== "browser-local");
 
   useEffect(() => {
     if (clientStorageMode !== "browser-local") {
@@ -141,6 +143,7 @@ export function QuestAgentProvider({
 
     const frameId = window.requestAnimationFrame(() => {
       setState(readBrowserAppState());
+      setStateReady(true);
     });
 
     return () => {
@@ -430,6 +433,7 @@ export function QuestAgentProvider({
 
   const value: QuestAgentContextValue = {
     state,
+    stateReady,
     clientStorageMode,
     backendMode: clientStorageMode === "browser-local" ? "browser-local" : initialBackendMode,
     deploymentTarget: initialDeploymentTarget,

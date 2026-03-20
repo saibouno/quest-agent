@@ -5,6 +5,7 @@ import type {
   BlockerReroute,
   BuildImproveDecision,
   Goal,
+  IntakeSnapshot,
   IntakeRefinement,
   MapDraft,
   PersistedState,
@@ -102,6 +103,58 @@ export function joinLines(values: string[]): string {
 
 function sortGoals(goals: Goal[]): Goal[] {
   return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export function findLatestIntakeSnapshot(
+  events: { goalId: string; payload: Record<string, unknown>; createdAt: string }[],
+  goalId: string,
+): IntakeSnapshot | null {
+  const latestEvent = [...events]
+    .filter((event) => event.goalId === goalId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .find((event) => Boolean(event.payload.intakeSnapshot));
+
+  if (!latestEvent) {
+    return null;
+  }
+
+  const snapshot = latestEvent.payload.intakeSnapshot;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+
+  const raw = snapshot as Record<string, unknown>;
+  const openQuestions = Array.isArray(raw.openQuestions)
+    ? raw.openQuestions.filter((item): item is string => typeof item === "string")
+    : [];
+  const firstRouteNote = typeof raw.firstRouteNote === "string" ? raw.firstRouteNote : "";
+  const refinementMode = raw.refinementMode === "ai" ? "ai" : raw.refinementMode === "heuristic" ? "heuristic" : null;
+
+  if (!refinementMode) {
+    return null;
+  }
+
+  return {
+    openQuestions,
+    firstRouteNote,
+    refinementMode,
+  };
+}
+
+export function resolveHomePath(state: Pick<AppState, "goals" | "focusGoal" | "currentMilestones">): string {
+  if (state.goals.length === 0) {
+    return "/onboarding/intake";
+  }
+
+  if (state.focusGoal && state.currentMilestones.length === 0) {
+    return "/onboarding/map";
+  }
+
+  if (state.focusGoal) {
+    return "/today";
+  }
+
+  return "/portfolio";
 }
 
 function sortQueueItems(items: ResumeQueueItem[]): ResumeQueueItem[] {
@@ -491,6 +544,7 @@ export function enrichState(state: PersistedState): AppState {
   };
 
   const focusGoal = findFocusGoal(safeState.goals, portfolioSettings);
+  const currentGoalIntakeSnapshot = focusGoal ? findLatestIntakeSnapshot(safeState.events, focusGoal.id) : null;
   const waitingGoalIds = new Set(safeState.resumeQueueItems.filter((item) => item.status === "waiting").map((item) => item.goalId));
   const activeGoals = prioritizeFocusGoal(safeState.goals.filter((goal) => goal.status === "active"), focusGoal);
   const parkedGoals = sortGoals(safeState.goals.filter((goal) => waitingGoalIds.has(goal.id)));
@@ -525,6 +579,7 @@ export function enrichState(state: PersistedState): AppState {
     ...safeState,
     focusGoal,
     currentGoal: focusGoal,
+    currentGoalIntakeSnapshot,
     activeGoals,
     parkedGoals,
     resumeQueue,
