@@ -181,6 +181,10 @@ export function MapPageClient({ mode }: MapPageClientProps) {
         if (clientStorageMode === "server-backed") {
           router.refresh();
         }
+        if (mode === "onboarding") {
+          router.push(goal.status === "active" ? "/today" : "/portfolio");
+          return;
+        }
         router.push("/today");
       } catch (nextError) {
         setError(localizeRuntimeError(locale, nextError, copy.errors.save));
