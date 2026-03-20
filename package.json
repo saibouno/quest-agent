@@ -9,8 +9,12 @@
                     "start":  "next start",
                     "lint":  "eslint . --max-warnings=0",
                     "typecheck":  "tsc --noEmit",
+                    "guardrails":  "node scripts/ops-guardrails.mjs",
+                    "dogfood:backup:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-backup.ps1\"",
+                    "dogfood:restore:check:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-restore-check.ps1\"",
                     "lint:noprofile":  "cmd /d /s /c \"eslint . --max-warnings=0\"",
                     "typecheck:noprofile":  "cmd /d /s /c \"tsc --noEmit\"",
+                    "guardrails:noprofile":  "cmd /d /s /c \"node scripts/ops-guardrails.mjs\"",
                     "copy:audit":  "node scripts/copy-audit.mjs"
                 },
     "keywords":  [
@@ -33,6 +37,7 @@
                             "@types/react-dom":  "^19.2.3",
                             "eslint":  "^9.39.4",
                             "eslint-config-next":  "^16.1.6",
+                            "supabase":  "^2.58.4",
                             "typescript":  "^5.9.3"
                         }
 }

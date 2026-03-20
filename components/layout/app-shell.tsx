@@ -11,7 +11,7 @@ import type { UiLocale } from "@/lib/quest-agent/types";
 
 export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
-  const { state, backendMode, aiMode, updateUiPreferences } = useQuestAgent();
+  const { state, aiMode, backendMode, clientStorageMode, deploymentTarget, updateUiPreferences } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
   const [showEnvironment, setShowEnvironment] = useState(false);
@@ -90,9 +90,10 @@ export function AppShell({ children }: PropsWithChildren) {
               <div className="stack-md">
                 <p className="eyebrow">{copy.shell.environment}</p>
                 <div className="pill-row">
+                  <StatusPill label={deploymentTarget} />
+                  <StatusPill label={clientStorageMode} />
                   <StatusPill label={backendMode} />
                   <StatusPill label={aiMode} />
-                  <StatusPill label={state.mirrorCard.needsReturn ? "detour" : "fight"} />
                 </div>
               </div>
             ) : null}

@@ -3,7 +3,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { QuestAgentProvider } from "@/components/providers/quest-agent-provider";
 import { getCopy } from "@/lib/quest-agent/copy";
-import { getBackendModeLabel, getClientStorageHint } from "@/lib/quest-agent/server/runtime";
+import { getBackendModeLabel, getClientStorageHint, getDeploymentTarget } from "@/lib/quest-agent/server/runtime";
 import { getAppState, isAiConfigured } from "@/lib/quest-agent/server/store";
 
 import "./globals.css";
@@ -20,6 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const state = await getAppState();
+  const deploymentTarget = getDeploymentTarget();
   const storageHint = getClientStorageHint();
   const backendMode = getBackendModeLabel();
   const aiMode = isAiConfigured() ? "ai" : "heuristic";
@@ -27,7 +28,13 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang={state.uiPreferences.locale}>
       <body>
-        <QuestAgentProvider aiMode={aiMode} initialBackendMode={backendMode} initialState={state} storageHint={storageHint}>
+        <QuestAgentProvider
+          aiMode={aiMode}
+          initialBackendMode={backendMode}
+          initialDeploymentTarget={deploymentTarget}
+          initialState={state}
+          storageHint={storageHint}
+        >
           <AppShell>{children}</AppShell>
         </QuestAgentProvider>
       </body>

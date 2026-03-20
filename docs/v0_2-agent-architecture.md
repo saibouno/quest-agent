@@ -68,6 +68,7 @@ Server code only decides between:
 
 That decision lives in `lib/quest-agent/server/runtime.ts`.
 `SUPABASE_SERVICE_ROLE_KEY` is only read on the server.
+`preview/dogfood` adds a guardrail on top: it must resolve to `supabase`, never `local-file`.
 
 ### Client side
 Client code only decides between:
@@ -76,7 +77,12 @@ Client code only decides between:
 
 That decision lives in `lib/quest-agent/client/runtime.ts`.
 `browser-local` is activated only after hydration.
+`preview/dogfood` adds a guardrail on top: it must resolve to `server-backed`, never `browser-local`.
 
 ## Preview rule
 When running on Vercel without Supabase, the app switches to browser `localStorage` for persistence.
 This keeps preview deployments usable without trying to write to Vercel's read-only filesystem.
+
+The deployment target now matters:
+- `preview/demo` may use `browser-local`
+- `preview/dogfood` must fail fast if Supabase is missing or repointed unexpectedly

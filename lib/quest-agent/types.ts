@@ -77,6 +77,7 @@ export type ServerStorageMode = "supabase" | "local-file";
 export type ClientStorageHint = "browser-local" | "server-backed";
 export type ClientStorageMode = ClientStorageHint;
 export type BackendModeLabel = "supabase" | "local-file" | "browser-local";
+export type DeploymentTarget = "local" | "main" | "preview/demo" | "preview/dogfood";
 export type WorkflowKind = "intake-refine" | "generate-map" | "plan-today" | "reroute-from-blocker";
 export type WorkflowLoop = "normal" | "stuck" | "decision";
 
