@@ -10,6 +10,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
 import { buildHeuristicReviewFocusReasons, buildReviewFocusCandidates } from "@/lib/quest-agent/derive";
 import { getCopy, interpolate, localizeRuntimeError } from "@/lib/quest-agent/copy";
+import { buildReservedRoleTrace, getReservedRoleLabel, summarizeReservedRoleEvent } from "@/lib/quest-agent/role-trace";
 import type { Goal, LeadMetricsDaily, ReviewFocusCandidateReason } from "@/lib/quest-agent/types";
 
 function todayOffset(days: number) {
@@ -29,11 +30,24 @@ function formatMinutes(locale: "ja" | "en", value: number | null) {
   return interpolate(getCopy(locale).common.durationMinutes, { value: String(Math.round(value)) });
 }
 
+function getRoleTraceCopy(locale: "ja" | "en") {
+  return locale === "ja"
+    ? {
+        title: "Internal Role Trace",
+        empty: "No reserved role events yet.",
+      }
+    : {
+        title: "Internal Role Trace",
+        empty: "No reserved role events yet.",
+      };
+}
+
 export function ReviewPageClient() {
   const router = useRouter();
   const { state, aiEnabled, clientStorageMode, createReview, selectFocusGoal, generateReviewFocusReasons } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
+  const roleTraceCopy = getRoleTraceCopy(locale);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -53,6 +67,10 @@ export function ReviewPageClient() {
   const heuristicReasons = useMemo(() => buildHeuristicReviewFocusReasons(focusCandidates, locale), [focusCandidates, locale]);
   const focusReasonMap = useMemo(() => new Map(focusReasons.map((item) => [item.goalId, item])), [focusReasons]);
   const goalMap = useMemo(() => new Map(state.goals.map((goal) => [goal.id, goal])), [state.goals]);
+  const timestampFormatter = useMemo(() => new Intl.DateTimeFormat(locale === "ja" ? "ja-JP" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }), [locale]);
 
   useEffect(() => {
     setFocusReasons(heuristicReasons);
@@ -106,6 +124,10 @@ export function ReviewPageClient() {
   const topCandidateReason = focusCandidates[0] ? focusReasonMap.get(focusCandidates[0].goalId) ?? heuristicReasons.find((item) => item.goalId === focusCandidates[0].goalId) : null;
   const candidateSummary = topCandidate ? `${topCandidate.title} ・ ${topCandidateReason?.reason ?? copy.review.candidateReason}`  : copy.review.focusCandidatesEmpty;
   const reviewsSummary = state.reviews.length ? interpolate(copy.common.itemCount, { value: String(state.reviews.length) }) : copy.review.savedReviewsEmpty;
+  const reservedRoleTrace = buildReservedRoleTrace(state.events, reviewGoal.id).slice(0, 6);
+  const reservedRoleSummary = reservedRoleTrace[0]
+    ? `${getReservedRoleLabel(reservedRoleTrace[0].type)} / ${summarizeReservedRoleEvent(reservedRoleTrace[0], locale)}`
+    : roleTraceCopy.empty;
 
   function refreshIfNeeded() {
     if (clientStorageMode === "server-backed") {
@@ -316,6 +338,35 @@ export function ReviewPageClient() {
           </div>
         ) : (
           <p className="muted">{copy.review.savedReviewsEmpty}</p>
+        )}
+      </DisclosureSection>
+
+      <DisclosureSection
+        eyebrow={roleTraceCopy.title}
+        title={roleTraceCopy.title}
+        summary={reservedRoleSummary}
+        initialOpen={false}
+        openLabel={copy.common.showDetails}
+        closeLabel={copy.common.hideDetails}
+      >
+        {reservedRoleTrace.length ? (
+          <div className="stack-lg">
+            {reservedRoleTrace.map((event) => (
+              <div className="queue-card" key={`${event.type}:${event.createdAt}`}>
+                <div className="queue-card__header">
+                  <div>
+                    <div className="pill-row">
+                      <span className="pill">{getReservedRoleLabel(event.type)}</span>
+                    </div>
+                    <h3>{summarizeReservedRoleEvent(event, locale)}</h3>
+                    <p className="muted">{timestampFormatter.format(new Date(event.createdAt))}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">{roleTraceCopy.empty}</p>
         )}
       </DisclosureSection>
     </div>

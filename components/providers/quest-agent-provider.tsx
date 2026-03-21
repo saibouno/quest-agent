@@ -351,6 +351,7 @@ export function QuestAgentProvider({
       const blocker = createBlockerInBrowser({
         ...input,
         suggestedNextStep: `${reroute.nextStep} / ${reroute.alternateRoute}`,
+        acceptedReroute: reroute,
       });
       refreshBrowserState();
       return { blocker, reroute };
@@ -401,7 +402,7 @@ export function QuestAgentProvider({
     });
 
     if (clientStorageMode === "browser-local") {
-      const goalId = input.goalSnapshot?.id ?? state.currentGoal?.id;
+      const goalId = !input.goalSnapshot ? input.goalId ?? state.currentGoal?.id : null;
       if (goalId) {
         recordTodayPlanInBrowser(goalId, payload.data);
         refreshBrowserState();

@@ -23,7 +23,7 @@ import {
 import type {
   AppState,
   Blocker,
-  BlockerInput,
+  BlockerSaveInput,
   BottleneckInterview,
   BuildImproveCheckInput,
   BuildImproveDecision,
@@ -121,7 +121,7 @@ export function updateQuestStatusInBrowser(questId: string, status: QuestStatus)
   return result.quest;
 }
 
-export function createBlockerInBrowser(input: BlockerInput): Blocker {
+export function createBlockerInBrowser(input: BlockerSaveInput): Blocker {
   const result = createBlockerInState(readBrowserState(), input);
   writeBrowserState(result.state);
   return result.blocker;
