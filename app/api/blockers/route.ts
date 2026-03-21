@@ -26,6 +26,7 @@ export async function POST(request: Request) {
     const blocker = await createBlocker({
       ...payload.data,
       suggestedNextStep: `${reroute.nextStep} / ${reroute.alternateRoute}`,
+      acceptedReroute: reroute,
     });
 
     return NextResponse.json({ data: blocker, reroute });

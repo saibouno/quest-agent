@@ -62,6 +62,16 @@ export type SeverityLevel = (typeof severityLevels)[number];
 export const agentRoles = ["scout", "realist", "skeptic", "router", "archivist"] as const;
 export type AgentRole = (typeof agentRoles)[number];
 
+export const reservedRoleEventTypes = [
+  "scout_context_collected",
+  "realist_plan_generated",
+  "skeptic_risk_flagged",
+  "router_route_selected",
+  "archivist_snapshot_saved",
+  "user_profile_updated",
+] as const;
+export type ReservedRoleEventType = (typeof reservedRoleEventTypes)[number];
+
 export const routeTypes = [
   "direct_route",
   "lightweight_detour",
@@ -367,6 +377,46 @@ export interface BlockerReroute {
   mode: "ai" | "heuristic";
 }
 
+export interface ReservedRoleEventPayloadMap {
+  scout_context_collected: {
+    refinementMode: IntakeSnapshot["refinementMode"];
+    openQuestionCount: number;
+    hasFirstRouteNote: boolean;
+  };
+  realist_plan_generated: {
+    mode: MapInput["mode"];
+    routeSummary: string;
+    milestoneCount: number;
+    questCount: number;
+  };
+  skeptic_risk_flagged: {
+    mode: BlockerReroute["mode"];
+    diagnosis: string;
+    alternateRoute: string;
+    reframing: string;
+    blockerType: Blocker["blockerType"];
+    severity: Blocker["severity"];
+  };
+  router_route_selected: {
+    mode: TodayPlan["mode"];
+    theme: string;
+    questTitles: string[];
+  };
+  archivist_snapshot_saved: {
+    summary: string;
+    hasRerouteNote: boolean;
+    hasNextFocus: boolean;
+  };
+  user_profile_updated: Record<string, never>;
+}
+
+export type ReservedRoleTraceEvent<T extends ReservedRoleEventType = ReservedRoleEventType> = {
+  goalId: string;
+  createdAt: string;
+  type: T;
+  payload: ReservedRoleEventPayloadMap[T];
+};
+
 export interface ReviewFocusCandidateInput {
   goalId: string;
   title: string;
@@ -536,6 +586,10 @@ export interface BlockerInput {
   severity: SeverityLevel;
   status: BlockerStatus;
   suggestedNextStep: string;
+}
+
+export interface BlockerSaveInput extends BlockerInput {
+  acceptedReroute?: BlockerReroute | null;
 }
 
 export interface ReviewInput {

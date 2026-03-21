@@ -29,7 +29,7 @@ import type {
   AppState,
   Artifact,
   Blocker,
-  BlockerInput,
+  BlockerSaveInput,
   BottleneckInterview,
   BuildImproveCheckInput,
   BuildImproveDecision,
@@ -845,7 +845,7 @@ export async function updateQuestStatus(questId: string, status: Quest["status"]
   });
 }
 
-export async function createBlocker(input: BlockerInput): Promise<Blocker> {
+export async function createBlocker(input: BlockerSaveInput): Promise<Blocker> {
   return mutateState((state) => {
     const result = createBlockerInState(state, input);
     return { state: result.state, value: result.blocker };

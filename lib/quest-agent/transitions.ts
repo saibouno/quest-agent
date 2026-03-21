@@ -9,7 +9,7 @@ import {
 } from "@/lib/quest-agent/derive";
 import type {
   Blocker,
-  BlockerInput,
+  BlockerSaveInput,
   BottleneckInterview,
   BuildImproveCheckInput,
   BuildImproveDecision,
@@ -27,6 +27,8 @@ import type {
   Quest,
   QuestEvent,
   QuestStatus,
+  ReservedRoleEventPayloadMap,
+  ReservedRoleEventType,
   ResumeGoalInput,
   ResumeQueueItem,
   ReturnInterviewInput,
@@ -50,6 +52,15 @@ function buildEvent(goalId: string, entityType: QuestEvent["entityType"], entity
     payload,
     createdAt: nowIso(),
   };
+}
+
+function buildReservedRoleEvent<T extends ReservedRoleEventType>(
+  goalId: string,
+  entityId: string,
+  type: T,
+  payload: ReservedRoleEventPayloadMap[T],
+): QuestEvent {
+  return buildEvent(goalId, "system", entityId, type, payload);
 }
 
 function withTracking(state: PersistedState): PersistedState {
@@ -364,6 +375,15 @@ export function saveGoalInState(sourceState: PersistedState, input: GoalInput): 
       ...(input.intakeSnapshot ? { intakeSnapshot: input.intakeSnapshot } : {}),
     }),
   );
+  if (input.intakeSnapshot) {
+    state.events.push(
+      buildReservedRoleEvent(goal.id, goal.id, "scout_context_collected", {
+        refinementMode: input.intakeSnapshot.refinementMode,
+        openQuestionCount: input.intakeSnapshot.openQuestions.length,
+        hasFirstRouteNote: input.intakeSnapshot.firstRouteNote.trim().length > 0,
+      }),
+    );
+  }
 
   if (goal.status === "active") {
     const previousFocusId = state.portfolioSettings.focusGoalId;
@@ -423,6 +443,12 @@ export function replaceMapInState(sourceState: PersistedState, input: MapInput):
       routeSummary: input.routeSummary,
       mode: input.mode,
     }),
+    buildReservedRoleEvent(input.goalId, input.goalId, "realist_plan_generated", {
+      mode: input.mode,
+      routeSummary: input.routeSummary,
+      milestoneCount: milestoneRecords.length,
+      questCount: questRecords.length,
+    }),
   );
 
   return withTracking(state);
@@ -447,7 +473,7 @@ export function updateQuestStatusInState(sourceState: PersistedState, questId: s
   return { state: withTracking(state), quest };
 }
 
-export function createBlockerInState(sourceState: PersistedState, input: BlockerInput): { state: PersistedState; blocker: Blocker } {
+export function createBlockerInState(sourceState: PersistedState, input: BlockerSaveInput): { state: PersistedState; blocker: Blocker } {
   const state = cloneState(sourceState);
   const blocker: Blocker = {
     id: makeId(),
@@ -464,6 +490,18 @@ export function createBlockerInState(sourceState: PersistedState, input: Blocker
 
   state.blockers = [blocker, ...state.blockers];
   state.events.push(buildEvent(blocker.goalId, "blocker", blocker.id, "blocker_detected", { title: blocker.title }));
+  if (input.acceptedReroute) {
+    state.events.push(
+      buildReservedRoleEvent(blocker.goalId, blocker.id, "skeptic_risk_flagged", {
+        mode: input.acceptedReroute.mode,
+        diagnosis: input.acceptedReroute.diagnosis,
+        alternateRoute: input.acceptedReroute.alternateRoute,
+        reframing: input.acceptedReroute.reframing,
+        blockerType: blocker.blockerType,
+        severity: blocker.severity,
+      }),
+    );
+  }
   return { state: withTracking(state), blocker };
 }
 
@@ -486,6 +524,13 @@ export function createReviewInState(sourceState: PersistedState, input: ReviewIn
   if (review.rerouteNote) {
     state.events.push(buildEvent(review.goalId, "system", review.goalId, "route_changed", { rerouteNote: review.rerouteNote }));
   }
+  state.events.push(
+    buildReservedRoleEvent(review.goalId, review.id, "archivist_snapshot_saved", {
+      summary: review.summary,
+      hasRerouteNote: review.rerouteNote.trim().length > 0,
+      hasNextFocus: review.nextFocus.trim().length > 0,
+    }),
+  );
 
   return { state: withTracking(state), review };
 }
@@ -497,6 +542,11 @@ export function recordTodayPlanInState(sourceState: PersistedState, goalId: stri
       mode: plan.mode,
       theme: plan.theme,
       quests: plan.quests.map((quest) => quest.title),
+    }),
+    buildReservedRoleEvent(goalId, goalId, "router_route_selected", {
+      mode: plan.mode,
+      theme: plan.theme,
+      questTitles: plan.quests.map((quest) => quest.title),
     }),
   );
   return withTracking(state);
