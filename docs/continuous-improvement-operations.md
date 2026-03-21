@@ -57,6 +57,19 @@ Before promoting into `preview/dogfood`, confirm at least:
 - `return`
 - `review`
 
+## Dogfood promotion checklist
+Use this checklist as the default promotion gate for `preview/dogfood`:
+
+1. Confirm `preview/dogfood` env still uses the intended `SUPABASE_URL` and `QUEST_AGENT_EXPECTED_SUPABASE_URL`.
+2. Run `npm.cmd run guardrails:noprofile`.
+3. Run `npm.cmd run dogfood:backup:noprofile`.
+4. Run `npm.cmd run dogfood:restore:check:noprofile`.
+5. If the dogfood project is new or the schema changed, apply [schema.sql](/C:/Users/oatyu/.codex/worktrees/8242/quest-agent/supabase/schema.sql) in Supabase SQL Editor before redeploying.
+6. Redeploy `preview/dogfood` on Vercel.
+7. Verify `/today`, `/return`, and `/review`.
+8. Create or edit one goal, reload, and confirm the data persists.
+9. If rollback is needed, redeploy the previous stable commit and then run `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dogfood-restore.ps1 -Apply`.
+
 ## Guardrails
 ### Supabase target pin
 - Do not change the `preview/dogfood` Supabase target casually.

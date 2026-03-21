@@ -111,6 +111,19 @@ After deployment, confirm:
 - Use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dogfood-restore.ps1` only for explicit rollback work.
 - Add `-Apply` to the live restore command only when you intentionally want to overwrite the live dogfood database.
 
+## Dogfood promotion checklist
+Use this as the short default checklist before calling a `preview/dogfood` promotion done:
+
+1. Confirm Vercel `preview/dogfood` env is set and still points at the pinned `SUPABASE_URL`.
+2. Run `npm.cmd run guardrails:noprofile`.
+3. Run `npm.cmd run dogfood:backup:noprofile`.
+4. Run `npm.cmd run dogfood:restore:check:noprofile`.
+5. If the dogfood Supabase project is fresh or the schema changed, apply [schema.sql](/C:/Users/oatyu/.codex/worktrees/8242/quest-agent/supabase/schema.sql) in Supabase SQL Editor.
+6. Redeploy the `preview/dogfood` Vercel deployment.
+7. Open `/today`, `/return`, and `/review`.
+8. Create or update one goal, reload the app, and confirm the data still remains.
+9. Only use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dogfood-restore.ps1 -Apply` when you intentionally need rollback.
+
 ## What is not done by this runbook
 - custom domain setup
 - production launch
