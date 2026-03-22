@@ -93,6 +93,9 @@ The shared state stays focused on one user's active execution flow.
 - `decisionRecords`
 - `summarySnapshot`
 
+## Review
+The Review surface can show a lightweight recent trace for the current goal by reading the latest reserved role events already saved for that goal. It stays intentionally thin: enough to glance back at recent internal routing context, not a full role-by-role operator console.
+
 ## Route taxonomy
 The Router uses these route types in v0.2:
 - `direct_route`
@@ -103,15 +106,19 @@ The Router uses these route types in v0.2:
 - `energy_matched_route`
 
 ## Event additions for the scaffold
-In addition to v0.1 events, v0.2 reserves these event names for future use:
+In addition to v0.1 events, v0.2 defines these reserved role event names.
+
+Currently emitted after deterministic save succeeds:
 - `scout_context_collected`
 - `realist_plan_generated`
 - `skeptic_risk_flagged`
 - `router_route_selected`
 - `archivist_snapshot_saved`
+
+Still reserved-only and not emitted yet:
 - `user_profile_updated`
 
-These are scaffolded conceptually now, but not all are emitted yet.
+The emit boundary is deterministic persistence, not the moment an AI response is returned. Preview, draft, or suggestion output by itself does not emit these events; they appear only after the corresponding save path succeeds and canonical state is updated.
 
 ## Important boundary
 The role contracts exist to structure future internal reasoning.

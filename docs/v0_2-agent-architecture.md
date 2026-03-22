@@ -43,12 +43,16 @@ Included now:
 - role JSON schemas in `lib/quest-agent/roles/scaffold.ts`
 - orchestration skeleton in `lib/quest-agent/server/orchestration.ts`
 - existing AI endpoints internally wired to the scaffold
+- reserved role events emitted on deterministic save success for the current Scout / Realist / Skeptic / Router / Archivist flows
+- a lightweight Review trace surface that shows recent reserved role events for the current goal
 
 Not included yet:
-- role-specific long-running logic
-- role-by-role UI exposure
-- multi-agent memory or negotiation
-- autonomous state mutation by roles
+- role-by-role operator UI exposure or a user-managed multi-agent console
+- role-specific long-running logic beyond the current request-response scaffold
+- multi-agent memory or negotiation between independently running roles
+- autonomous state mutation by roles outside deterministic save paths
+
+Role Trace is now part of the internal scaffold, but the product still behaves as one Quest Agent rather than a separately operated multi-agent system.
 
 ## Deterministic boundary
 Prompts are advisory.
