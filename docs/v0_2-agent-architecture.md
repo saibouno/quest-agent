@@ -36,7 +36,7 @@ Scout -> Skeptic -> Realist -> Router -> Archivist
 Scout -> Realist -> Skeptic -> Router -> Archivist
 
 ## Current implementation boundary
-v0.2 deliberately stops at scaffold level.
+v0.2 deliberately stops at scaffold level and keeps the five roles internal to the product.
 Included now:
 - prompt files in `prompts/`
 - public role output types in `lib/quest-agent/types.ts`
