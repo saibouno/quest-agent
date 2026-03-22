@@ -9,9 +9,11 @@ import { DisclosureSection } from "@/components/shared/disclosure-section";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatusPill } from "@/components/shared/status-pill";
 import { buildHeuristicReviewFocusReasons, buildReviewFocusCandidates } from "@/lib/quest-agent/derive";
+import { buildReviewLearningBucketMap, getLearningCaptureLabel } from "@/lib/quest-agent/learning-capture";
 import { getCopy, interpolate, localizeRuntimeError } from "@/lib/quest-agent/copy";
 import { buildReservedRoleTrace, getReservedRoleLabel, summarizeReservedRoleEvent } from "@/lib/quest-agent/role-trace";
-import type { Goal, LeadMetricsDaily, ReviewFocusCandidateReason } from "@/lib/quest-agent/types";
+import { learningCaptureBuckets } from "@/lib/quest-agent/types";
+import type { Goal, LeadMetricsDaily, LearningCaptureBucket, ReviewFocusCandidateReason } from "@/lib/quest-agent/types";
 
 function todayOffset(days: number) {
   const date = new Date();
@@ -42,12 +44,27 @@ function getRoleTraceCopy(locale: "ja" | "en") {
       };
 }
 
+function getLearningCaptureCopy(locale: "ja" | "en") {
+  return locale === "ja"
+    ? {
+        field: "学びの分類（任意）",
+        label: "分類",
+        empty: "分類なし",
+      }
+    : {
+        field: "Learning bucket (optional)",
+        label: "Bucket",
+        empty: "No bucket",
+      };
+}
+
 export function ReviewPageClient() {
   const router = useRouter();
   const { state, aiEnabled, clientStorageMode, createReview, selectFocusGoal, generateReviewFocusReasons } = useQuestAgent();
   const locale = state.uiPreferences.locale;
   const copy = getCopy(locale);
   const roleTraceCopy = getRoleTraceCopy(locale);
+  const learningCaptureCopy = getLearningCaptureCopy(locale);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -57,6 +74,7 @@ export function ReviewPageClient() {
     periodEnd: todayOffset(0),
     summary: "",
     learnings: "",
+    learningBucket: "" as LearningCaptureBucket | "",
     rerouteNote: "",
     nextFocus: "",
   });
@@ -67,6 +85,7 @@ export function ReviewPageClient() {
   const heuristicReasons = useMemo(() => buildHeuristicReviewFocusReasons(focusCandidates, locale), [focusCandidates, locale]);
   const focusReasonMap = useMemo(() => new Map(focusReasons.map((item) => [item.goalId, item])), [focusReasons]);
   const goalMap = useMemo(() => new Map(state.goals.map((goal) => [goal.id, goal])), [state.goals]);
+  const reviewLearningBucketMap = useMemo(() => buildReviewLearningBucketMap(state.events, reviewGoal.id), [state.events, reviewGoal.id]);
   const timestampFormatter = useMemo(() => new Intl.DateTimeFormat(locale === "ja" ? "ja-JP" : "en-US", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -150,11 +169,12 @@ export function ReviewPageClient() {
           periodEnd: form.periodEnd,
           summary: form.summary,
           learnings: form.learnings,
+          learningBucket: form.learningBucket || null,
           rerouteNote: form.rerouteNote,
           nextFocus: form.nextFocus,
         });
         setMessage(copy.review.messages.saved);
-        setForm({ periodStart: todayOffset(-6), periodEnd: todayOffset(0), summary: "", learnings: "", rerouteNote: "", nextFocus: "" });
+        setForm({ periodStart: todayOffset(-6), periodEnd: todayOffset(0), summary: "", learnings: "", learningBucket: "", rerouteNote: "", nextFocus: "" });
         refreshIfNeeded();
       } catch (nextError) {
         setError(localizeRuntimeError(locale, nextError, copy.review.errors.save));
@@ -220,6 +240,17 @@ export function ReviewPageClient() {
           <label className="field field--full">
             <span>{copy.review.fields.learnings}</span>
             <textarea className="textarea" rows={3} value={form.learnings} onChange={(event) => updateField("learnings", event.target.value)} />
+          </label>
+          <label className="field">
+            <span>{learningCaptureCopy.field}</span>
+            <select className="input" value={form.learningBucket} onChange={(event) => updateField("learningBucket", event.target.value)}>
+              <option value="">{learningCaptureCopy.empty}</option>
+              {learningCaptureBuckets.map((bucket) => (
+                <option key={bucket} value={bucket}>
+                  {getLearningCaptureLabel(bucket, locale)}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field field--full">
             <span>{copy.review.fields.rerouteNote}</span>
@@ -321,20 +352,26 @@ export function ReviewPageClient() {
       >
         {state.reviews.length ? (
           <div className="stack-lg">
-            {state.reviews.map((review) => (
+            {state.reviews.map((review) => {
+              const learningBucket = reviewLearningBucketMap.get(review.id);
+              return (
               <div className="milestone-card" key={review.id}>
                 <div className="milestone-card__header">
                   <div>
+                    <div className="pill-row">
+                      {learningBucket ? <span className="pill">{getLearningCaptureLabel(learningBucket, locale)}</span> : null}
+                    </div>
                     <p className="eyebrow">{review.periodStart} - {review.periodEnd}</p>
                     <h3>{review.summary}</h3>
                   </div>
                   <StatusPill label="completed" />
                 </div>
+                <p><strong>{learningCaptureCopy.label}:</strong> {learningBucket ? getLearningCaptureLabel(learningBucket, locale) : learningCaptureCopy.empty}</p>
                 <p><strong>{copy.review.labels.learnings}:</strong> {review.learnings || copy.common.noData}</p>
                 <p><strong>{copy.review.labels.reroute}:</strong> {review.rerouteNote || copy.common.noData}</p>
                 <p><strong>{copy.review.labels.nextFocus}:</strong> {review.nextFocus || copy.common.noData}</p>
               </div>
-            ))}
+            );})}
           </div>
         ) : (
           <p className="muted">{copy.review.savedReviewsEmpty}</p>
