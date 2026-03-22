@@ -86,6 +86,7 @@ When dogfooding reveals something worth keeping, record it in one of these bucke
 
 It is fine if a single use session produces no note.
 When something is worth keeping, use one of the buckets above so later review stays sortable.
+In-product, the weekly Review form can attach one optional learning bucket to the saved note.
 
 ## Schema change runbook
 Keep schema changes short and reversible.

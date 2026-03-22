@@ -518,9 +518,13 @@ export function createReviewInState(sourceState: PersistedState, input: ReviewIn
     nextFocus: input.nextFocus,
     createdAt: nowIso(),
   };
+  const reviewEventPayload: Record<string, unknown> = { summary: review.summary };
+  if (input.learningBucket) {
+    reviewEventPayload.learningBucket = input.learningBucket;
+  }
 
   state.reviews = [review, ...state.reviews];
-  state.events.push(buildEvent(review.goalId, "review", review.id, "weekly_review_done", { summary: review.summary }));
+  state.events.push(buildEvent(review.goalId, "review", review.id, "weekly_review_done", reviewEventPayload));
   if (review.rerouteNote) {
     state.events.push(buildEvent(review.goalId, "system", review.goalId, "route_changed", { rerouteNote: review.rerouteNote }));
   }

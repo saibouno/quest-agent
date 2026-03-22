@@ -6,6 +6,7 @@ import {
   bottleneckTypes,
   buildImproveModes,
   goalStatuses,
+  learningCaptureBuckets,
   mainConnectionKinds,
   metaWorkFlagTypes,
   priorityLevels,
@@ -207,6 +208,7 @@ export const reviewInputSchema = z.object({
   periodEnd: z.string().trim().min(1),
   summary: z.string().trim().min(1),
   learnings: z.string().trim().default(""),
+  learningBucket: z.enum(learningCaptureBuckets).nullable().optional().default(null),
   rerouteNote: z.string().trim().default(""),
   nextFocus: z.string().trim().default(""),
 });

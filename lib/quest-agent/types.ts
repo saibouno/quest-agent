@@ -59,6 +59,15 @@ export type BlockerStatus = (typeof blockerStatuses)[number];
 export const severityLevels = ["high", "medium", "low"] as const;
 export type SeverityLevel = (typeof severityLevels)[number];
 
+export const learningCaptureBuckets = [
+  "bug",
+  "friction",
+  "misdiagnosis",
+  "good_intervention",
+  "feature_request",
+] as const;
+export type LearningCaptureBucket = (typeof learningCaptureBuckets)[number];
+
 export const agentRoles = ["scout", "realist", "skeptic", "router", "archivist"] as const;
 export type AgentRole = (typeof agentRoles)[number];
 
@@ -598,6 +607,7 @@ export interface ReviewInput {
   periodEnd: string;
   summary: string;
   learnings: string;
+  learningBucket?: LearningCaptureBucket | null;
   rerouteNote: string;
   nextFocus: string;
 }
