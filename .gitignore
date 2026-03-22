@@ -2,6 +2,8 @@
 node_modules
 .npm-cache
 .codex-context/
+.worktrees/
+%SystemDrive%/
 .env
 .env.local
 .env.development.local
