@@ -22,25 +22,33 @@ The repo is still one Quest Agent from the outside. Internally, v0.2 uses a scaf
 - Archivist
 
 These roles structure prompts, contracts, and orchestration, but they are not exposed as independent agents in the product UI.
+For the architecture boundary and role I/O details, start with [docs/v0_2-agent-architecture.md](docs/v0_2-agent-architecture.md) and [docs/v0_2-role-io-contracts.md](docs/v0_2-role-io-contracts.md).
 
 ## Preview modes
 
-- `preview/demo` is disposable and uses browser `localStorage` when Supabase is unavailable.
-- `preview/dogfood` is persistent and must stay `server-backed` with the intended Supabase target.
+- `preview/demo` is the lightweight preview and may fall back to browser-local storage.
+- `preview/dogfood` is the stable preview and must stay persistent and `server-backed`.
+
+For promotion flow, backup and rollback helpers, and the environment contract, see [docs/continuous-improvement-operations.md](docs/continuous-improvement-operations.md).
 
 ## Source of truth
 
 - Product and architecture decisions live in `docs/`.
 - Role prompts live in `prompts/`.
 - Deterministic state, validation, and persistence live in `lib/quest-agent/`.
+- Command spellings live in `package.json`.
 
 ## Helpful commands
 
-```bash
-npm.cmd run lint:noprofile
-npm.cmd run typecheck:noprofile
-npm.cmd run build
-```
+| Use | Command |
+| --- | --- |
+| local checks | `npm.cmd run lint:noprofile` |
+| local checks | `npm.cmd run typecheck:noprofile` |
+| local checks | `npm.cmd run build` |
+| local checks | `npm.cmd run guardrails:noprofile` |
+| copy audit | `npm.cmd run copy:audit` |
+| dogfood ops | `npm.cmd run dogfood:backup:noprofile` |
+| dogfood ops | `npm.cmd run dogfood:restore:check:noprofile` |
 
 ## Notes
 
