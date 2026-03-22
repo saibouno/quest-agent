@@ -19,6 +19,7 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - External behavior stays as one Quest Agent.
 - The 5 internal roles are scaffold only in v0.2.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only.
+- When touching OpenAI API integrations, use `openai-docs`, check the current official OpenAI docs before editing, and briefly note what you verified after the change.
 - On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
 - Create GitHub PRs in Japanese by default.
 
