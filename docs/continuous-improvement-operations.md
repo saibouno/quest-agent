@@ -36,7 +36,7 @@ It only defines how Quest Agent moves work through `main`, `preview/demo`, and `
 - set `SUPABASE_SERVICE_ROLE_KEY` in server env only
 - set `SUPABASE_DB_URL` for dump and restore tooling
 - set `QUEST_AGENT_EXPECTED_SUPABASE_URL` to the same value as `SUPABASE_URL`
-- optional `QUEST_AGENT_BACKUP_ROOT` to move backups outside the repo default
+- set `QUEST_AGENT_BACKUP_ROOT` to the directory where dogfood backups and manifests should be written
 - expected runtime storage: `server-backed`
 
 ### Future client-side Supabase
@@ -117,3 +117,30 @@ Keep schema changes short and reversible.
 - redeploy the previous stable commit
 - restore the backed-up schema/data with `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dogfood-restore.ps1 -Apply`
 - stop promotion work until the migration path is clarified
+
+## Dogfood helper contract
+
+The dogfood helper scripts are expected to fail fast and print a short summary that is easy to read in CI and in a terminal.
+
+### Required environment
+- `SUPABASE_URL`
+- `SUPABASE_DB_URL`
+- `QUEST_AGENT_EXPECTED_SUPABASE_URL`
+- `QUEST_AGENT_BACKUP_ROOT`
+
+### Backup output
+- `scripts/dogfood-backup.ps1` writes a timestamped `.sql` dump plus a matching `.manifest.json`
+- the manifest records the live row counts for the critical tables at backup time
+- the backup step exits non-zero if the required env is missing or the dump command fails
+- the helper uses `pg_dump` for the dump and `psql` for the counts snapshot
+
+### Restore-check output
+- `scripts/dogfood-restore-check.ps1` reads the latest manifest from the backup root by default
+- the restore-check step exits non-zero if the required env is missing, the manifest is missing, the backup artifact is missing, or any critical table count differs
+- success means the helper compared the manifest and live counts without mismatch and printed a one-line summary
+- the helper uses `psql` to read the live counts and compares them to the manifest snapshot
+
+### What counts as success
+- the docs and script exit behavior agree
+- the required env is explicit
+- rollback criteria are still the same: if the current dogfood data cannot be read back safely, stop promotion until the migration path is clarified

@@ -1,7 +1,7 @@
 # Vercel Preview Runbook
 
 ## Goal
-Publish Quest Agent in two stable Vercel preview surfaces:
+Publish Quest Agent in two stable Vercel preview surfaces without mixing their persistence contracts:
 
 - `preview/demo` for lightweight change checks
 - `preview/dogfood` for continuous internal use
@@ -10,6 +10,7 @@ Publish Quest Agent in two stable Vercel preview surfaces:
 ### `preview/demo`
 This is the disposable preview surface.
 If Supabase is not connected, saved data is stored only in the current browser using `localStorage`.
+
 That means:
 
 - it survives reload in the same browser
@@ -49,7 +50,8 @@ Quest Agent therefore uses browser `localStorage` only for `preview/demo`.
 4. Set `SUPABASE_SERVICE_ROLE_KEY` as a server env only.
 5. Set `SUPABASE_DB_URL` for backup and restore operations.
 6. Set `QUEST_AGENT_EXPECTED_SUPABASE_URL` to the same value as `SUPABASE_URL`.
-7. Keep its project, branch, and env configuration separate from the demo project.
+7. Set `QUEST_AGENT_BACKUP_ROOT` to the directory where dogfood backups and manifests should be written.
+8. Keep its project, branch, and env configuration separate from the demo project.
 
 ## Environment variables
 ### Demo preview without backend
@@ -63,7 +65,7 @@ Quest Agent therefore uses browser `localStorage` only for `preview/demo`.
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_DB_URL`
 - `QUEST_AGENT_EXPECTED_SUPABASE_URL`
-- `QUEST_AGENT_BACKUP_ROOT` optional, defaults to `./backups/dogfood`
+- `QUEST_AGENT_BACKUP_ROOT`
 
 ### AI later
 Add these when you want real model calls instead of heuristic fallback:
@@ -101,15 +103,32 @@ After deployment, confirm:
 - goals, focus, resume queue, and saved reviews remain after deploy
 - `today`, `park`, `resume`, `return`, and `review` still work
 - demo env and dogfood env are not mixed
-- `npm.cmd run dogfood:backup:noprofile` creates a backup bundle
-- `npm.cmd run dogfood:restore:check:noprofile` restores that bundle into a scratch Postgres successfully
+- `npm.cmd run dogfood:backup:noprofile` creates a timestamped SQL dump and a matching manifest
+- `npm.cmd run dogfood:restore:check:noprofile` reads that manifest, compares the critical table counts, and exits non-zero on mismatch
 
 ## Backup and rollback operations
 - Run `npm.cmd run guardrails:noprofile` before any dogfood promotion or destructive schema change.
-- Run `npm.cmd run dogfood:backup:noprofile` to create `roles.sql`, `schema.sql`, `data.sql`, and `manifest.json`.
-- Run `npm.cmd run dogfood:restore:check:noprofile` to verify the backup against a scratch Postgres container.
+- Run `npm.cmd run dogfood:backup:noprofile` to create a timestamped `.sql` backup and a matching `.manifest.json`.
+- Run `npm.cmd run dogfood:restore:check:noprofile` to verify the latest backup against the live critical-table counts.
 - Use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dogfood-restore.ps1` only for explicit rollback work.
 - Add `-Apply` to the live restore command only when you intentionally want to overwrite the live dogfood database.
+
+## Dogfood helper contract
+For `preview/dogfood`, the helper scripts are the source of truth for exact backup and restore-check behavior:
+
+- `scripts/dogfood-common.ps1`
+- `scripts/dogfood-backup.ps1`
+- `scripts/dogfood-restore-check.ps1`
+
+The current helper contract is:
+
+- required env must be present before backup or restore-check starts
+- `QUEST_AGENT_EXPECTED_SUPABASE_URL` must match `SUPABASE_URL`
+- `QUEST_AGENT_BACKUP_ROOT` points at the backup artifact root
+- backup writes a timestamped `.sql` dump and a matching manifest with critical table counts
+- restore-check reads the manifest, confirms the backup artifact exists, compares critical counts, and exits non-zero on mismatch
+- if the helper output and the runbook drift, update the docs to match the script behavior rather than adding a one-off workaround
+- the helper pair uses `pg_dump` for backup and `psql` for live-count validation
 
 ## What is not done by this runbook
 - custom domain setup
@@ -117,4 +136,4 @@ After deployment, confirm:
 - shared persistence without Supabase
 - authentication
 
-For the full promotion flow, guardrails, and schema-change runbook, see `docs/continuous-improvement-operations.md`.
+For the full promotion flow, guardrails, learning-capture contract, and schema-change runbook, see `docs/continuous-improvement-operations.md`.

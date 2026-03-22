@@ -1,6 +1,6 @@
-[CmdletBinding()]
 param(
-  [string]$BackupPath
+  [string]$BackupRoot = $env:QUEST_AGENT_BACKUP_ROOT,
+  [string]$ManifestPath
 )
 
 Set-StrictMode -Version Latest
@@ -8,59 +8,72 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "dogfood-common.ps1")
 
-$containerName = "quest-agent-dogfood-restore-check-{0}" -f ([System.Guid]::NewGuid().ToString("N").Substring(0, 12))
-$cleanupContainer = $false
+function Compare-DogfoodCounts {
+  param(
+    [Parameter(Mandatory = $true)]
+    [hashtable]$Expected,
+    [Parameter(Mandatory = $true)]
+    [hashtable]$Actual
+  )
+
+  $differences = New-Object System.Collections.Generic.List[string]
+  foreach ($name in ($Expected.Keys + $Actual.Keys | Sort-Object -Unique)) {
+    $expectedValue = if ($Expected.ContainsKey($name)) { [int64]$Expected[$name] } else { $null }
+    $actualValue = if ($Actual.ContainsKey($name)) { [int64]$Actual[$name] } else { $null }
+    if ($expectedValue -ne $actualValue) {
+      $differences.Add(("{0}: expected={1} actual={2}" -f $name, $expectedValue, $actualValue))
+    }
+  }
+
+  return $differences
+}
 
 try {
-  $resolvedBackupDirectory = Resolve-BackupDirectory -RequestedPath $BackupPath
-  $manifest = Read-BackupManifest -BackupDirectory $resolvedBackupDirectory
-  Assert-BackupArtifacts -BackupDirectory $resolvedBackupDirectory -Manifest $manifest
-
-  $postgresImage = "postgres:{0}" -f $manifest.postgres.majorVersion
-  $docker = Start-LocalPostgresContainer -Image $postgresImage -ContainerName $containerName
-  $cleanupContainer = $true
-  Wait-ForLocalPostgres -Docker $docker -ContainerName $containerName
-
-  Copy-ArtifactIntoContainer -Docker $docker -ContainerName $containerName -SourcePath (Join-Path $resolvedBackupDirectory $manifest.artifacts.schema.file) -DestinationPath "/tmp/schema.sql"
-  Copy-ArtifactIntoContainer -Docker $docker -ContainerName $containerName -SourcePath (Join-Path $resolvedBackupDirectory $manifest.artifacts.data.file) -DestinationPath "/tmp/data.sql"
-
-  Invoke-PsqlInContainer `
-    -Docker $docker `
-    -ContainerName $containerName `
-    -DbNameOrUrl "postgres" `
-    -UserName "postgres" `
-    -Files @("/tmp/schema.sql", "/tmp/data.sql") `
-    -Commands @("SET session_replication_role = replica;") `
-    -SingleTransaction
-
-  $actualTablesJson = Invoke-PsqlInContainer `
-    -Docker $docker `
-    -ContainerName $containerName `
-    -DbNameOrUrl "postgres" `
-    -UserName "postgres" `
-    -Commands @((Get-TableCountVerificationSql)) `
-    -CaptureOutput
-
-  $expectedTables = @($manifest.tables | Sort-Object name)
-  $actualTables = @(($actualTablesJson | ConvertFrom-Json) | Sort-Object name)
-
-  if ($expectedTables.Count -ne $actualTables.Count) {
-    throw "Restore-check table count mismatch. Expected $($expectedTables.Count) rows in the manifest inventory and found $($actualTables.Count)."
-  }
-
-  for ($index = 0; $index -lt $expectedTables.Count; $index += 1) {
-    if ($expectedTables[$index].name -ne $actualTables[$index].name) {
-      throw "Restore-check table inventory mismatch at position $index. Expected '$($expectedTables[$index].name)' and found '$($actualTables[$index].name)'."
-    }
-
-    if ([int64]$expectedTables[$index].rowCount -ne [int64]$actualTables[$index].rowCount) {
-      throw "Restore-check row count mismatch for '$($expectedTables[$index].name)'. Expected $($expectedTables[$index].rowCount), found $($actualTables[$index].rowCount)."
+  $environment = Get-DogfoodRequiredEnvironment
+  $resolvedBackupRoot = [string]$BackupRoot
+  $resolvedBackupRoot = $resolvedBackupRoot.Trim()
+  if (-not [string]::IsNullOrWhiteSpace($resolvedBackupRoot)) {
+    $environment = [pscustomobject]@{
+      RepoRoot = $environment.RepoRoot
+      SupabaseUrl = $environment.SupabaseUrl
+      SupabaseDbUrl = $environment.SupabaseDbUrl
+      ExpectedSupabaseUrl = $environment.ExpectedSupabaseUrl
+      BackupRoot = $resolvedBackupRoot
+      DeploymentTarget = $environment.DeploymentTarget
     }
   }
 
-  Write-Output "Dogfood restore-check passed for: $resolvedBackupDirectory"
-} finally {
-  if ($cleanupContainer) {
-    Stop-DockerContainer -Docker $docker -ContainerName $containerName
+  Test-DogfoodCommandAvailable -CommandName "psql"
+
+  $backupDirectory = Get-DogfoodBackupDirectory -BackupRoot $environment.BackupRoot
+  $resolvedManifestPath = [string]$ManifestPath
+  $resolvedManifestPath = $resolvedManifestPath.Trim()
+  if ([string]::IsNullOrWhiteSpace($resolvedManifestPath)) {
+    $resolvedManifestPath = Get-DogfoodLatestManifestPath -BackupDirectory $backupDirectory
   }
+
+  $manifest = Read-DogfoodJson -Path $resolvedManifestPath
+  $expectedCounts = ConvertFrom-DogfoodManifestCounts -Manifest $manifest
+  $backupPath = if ($manifest.backupPath) { [string]$manifest.backupPath } else { [System.IO.Path]::ChangeExtension($resolvedManifestPath, ".sql") }
+  if (-not (Test-Path $backupPath)) {
+    throw "Backup artifact not found: $backupPath"
+  }
+  $actualCounts = Get-DogfoodTableCounts -DatabaseUrl $environment.SupabaseDbUrl
+  $differences = Compare-DogfoodCounts -Expected $expectedCounts -Actual $actualCounts
+
+  if ($differences.Count -gt 0) {
+    Write-Error ("Dogfood restore-check failed for {0}" -f $resolvedManifestPath)
+    foreach ($difference in $differences) {
+      Write-Error $difference
+    }
+    exit 1
+  }
+
+  Write-Host ("Dogfood restore-check OK: {0}" -f $resolvedManifestPath)
+  Write-Host ("Backup artifact: {0}" -f $backupPath)
+  Write-Host ("Table counts: {0}" -f (Format-DogfoodCounts -TableCounts $actualCounts))
+}
+catch {
+  Write-Error $_
+  exit 1
 }
