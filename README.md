@@ -42,6 +42,8 @@ For promotion flow, backup and rollback helpers, and the environment contract, s
 
 | Use | Command |
 | --- | --- |
+| local dev | `npm.cmd run dev` |
+| memory debug | `npm.cmd run dev:inspect` |
 | local checks | `npm.cmd run lint:noprofile` |
 | local checks | `npm.cmd run typecheck:noprofile` |
 | local checks | `npm.cmd run build` |
@@ -52,5 +54,6 @@ For promotion flow, backup and rollback helpers, and the environment contract, s
 
 ## Notes
 
+- The local dev server is intentionally heap-capped to reduce runaway RAM usage during Next.js development.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only.
 - GitHub PRs should be created in Japanese by default.
