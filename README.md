@@ -38,15 +38,23 @@ For promotion flow, backup and rollback helpers, and the environment contract, s
 - Deterministic state, validation, and persistence live in `lib/quest-agent/`.
 - Command spellings live in `package.json`.
 
+## Theme harness
+
+- The local harness loop lives in `workflows/HARNESSED_THEME_WORKFLOW.md`.
+- Runbooks for plan, review, implementation, status, and closeout live in `docs/runbooks/theme-loop/`.
+- The canonical harness skill is `.agents/skills/theme-loop/SKILL.md`.
+- Generated harness artifacts stay scratch-only under `output/theme_ops/`.
+
 ## Helpful commands
 
 | Use | Command |
 | --- | --- |
 | local dev | `npm.cmd run dev` |
 | memory debug | `npm.cmd run dev:inspect` |
+| harness | `npm.cmd run harness:test:noprofile` |
 | local checks | `npm.cmd run lint:noprofile` |
 | local checks | `npm.cmd run typecheck:noprofile` |
-| local checks | `npm.cmd run build` |
+| local checks | `npm.cmd run build:noprofile` |
 | local checks | `npm.cmd run guardrails:noprofile` |
 | copy audit | `npm.cmd run copy:audit` |
 | dogfood ops | `npm.cmd run dogfood:backup:noprofile` |

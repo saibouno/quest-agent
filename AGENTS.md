@@ -14,6 +14,8 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - Product and architecture decisions live in `docs/`.
 - Role prompts live in `prompts/`.
 - Deterministic state, validation, and persistence rules live in `lib/quest-agent/`.
+- Theme harness workflow docs live in `workflows/HARNESSED_THEME_WORKFLOW.md` and `docs/runbooks/theme-loop/`.
+- The canonical harness skill lives at `.agents/skills/theme-loop/SKILL.md`.
 
 ## Repo Rules
 - External behavior stays as one Quest Agent.
@@ -22,6 +24,9 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - When touching OpenAI API integrations, use `openai-docs`, check the current official OpenAI docs before editing, and briefly note what you verified after the change.
 - On this Windows workspace, prefer PowerShell without profile for automated commands. In Codex use `login:false`; in package scripts use the `*:noprofile` variants when available. This avoids profile-related `PSSecurityException` and intermittent `spawn EPERM` build failures.
 - Create GitHub PRs in Japanese by default.
+- Theme harness runtime artifacts stay scratch-only under `output/theme_ops/`.
+- Theme harness control lives in `scripts/theme-ops.mjs` and `scripts/theme-harness.mjs`; do not reintroduce Python for this loop in v1.
+- `node scripts/theme-ops.mjs close --slug <slug>` is a repo-local closeout readiness command in v1. It does not own commit, push, PR, merge, or cleanup automation yet.
 
 ## Branch And Preview Rules
 - Default branch is `main`.
@@ -41,3 +46,10 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - Merge PRs into `main` with `Create a merge commit` unless there is a clear reason not to.
 - After merge, delete the remote feature branch and delete the local feature branch.
 - After merge, switch back to `main`, `fetch --prune`, and fast-forward local `main` to `origin/main`.
+
+## Verification Commands
+- `npm.cmd run harness:test:noprofile`
+- `npm.cmd run lint:noprofile`
+- `npm.cmd run typecheck:noprofile`
+- `npm.cmd run build:noprofile`
+- `npm.cmd run guardrails:noprofile`
