@@ -9,6 +9,10 @@ import {
   HARNESS_POLICY_EXEMPT,
   HARNESS_POLICY_LEGACY,
   HarnessError,
+  MERGE_POLICY_AUTO_AFTER_GREEN,
+  MERGE_POLICY_MANUAL,
+  ROLLBACK_CLASS_MANUAL,
+  ROLLBACK_CLASS_SIMPLE_REVERT,
   actionPayload,
   aftercareIsRecorded,
   assertRootOwnedCwd,
@@ -18,6 +22,8 @@ import {
   determineGuidance,
   getRepoRootFromImport,
   loadState,
+  mergeGatePayload,
+  mergePolicyUsesWaitPath,
   nowIso,
   ownerBoundary,
   printJson,
@@ -33,14 +39,14 @@ function quoteForCmd(value) {
   return `"${String(value).replace(/"/g, '\\"')}"`;
 }
 
-function runGit(repoRoot, args) {
+function runGit(repoRoot, args, { cwd = repoRoot } = {}) {
   const result = process.platform === "win32"
     ? spawnSync("cmd.exe", ["/d", "/s", "/c", `git ${args.map(quoteForCmd).join(" ")}`], {
-        cwd: repoRoot,
+        cwd,
         encoding: "utf8",
       })
     : spawnSync("git", args, {
-        cwd: repoRoot,
+        cwd,
         encoding: "utf8",
       });
 
@@ -49,6 +55,7 @@ function runGit(repoRoot, args) {
       status: "error",
       details: {
         command: `git ${args.join(" ")}`,
+        cwd,
         error: result.error.message,
       },
     });
@@ -59,11 +66,63 @@ function runGit(repoRoot, args) {
       status: "action_required",
       details: {
         command: `git ${args.join(" ")}`,
+        cwd,
         stdout: String(result.stdout || "").trim(),
         stderr: String(result.stderr || "").trim(),
       },
     });
   }
+
+  return result;
+}
+
+function gitStdout(repoRoot, args, execGit = runGit, cwd = repoRoot) {
+  const result = execGit(repoRoot, args, { cwd });
+  return String(result?.stdout || "").trim();
+}
+
+function commitThemeWorktreeIfNeeded(repoRoot, state, execGit = runGit) {
+  const worktreeStatus = gitStdout(repoRoot, ["status", "--porcelain"], execGit, state.worktree_path);
+  if (!worktreeStatus) {
+    return false;
+  }
+
+  execGit(repoRoot, ["add", "-A"], { cwd: state.worktree_path });
+  execGit(repoRoot, ["commit", "-m", state.theme_name], { cwd: state.worktree_path });
+  return true;
+}
+
+function mergeAndCleanupTheme(repoRoot, state, execGit = runGit) {
+  const currentRootBranch = gitStdout(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], execGit, repoRoot);
+  if (currentRootBranch !== "main") {
+    throw new HarnessError("`close --wait-for-merge` must run from the canonical `main` checkout.", {
+      status: "action_required",
+      details: {
+        current_branch: currentRootBranch || "unknown",
+      },
+    });
+  }
+
+  const rootStatus = gitStdout(repoRoot, ["status", "--porcelain"], execGit, repoRoot);
+  if (rootStatus) {
+    throw new HarnessError("Root checkout is dirty; refusing to merge an auto lane theme into `main`.", {
+      status: "action_required",
+      details: {
+        current_branch: currentRootBranch,
+      },
+    });
+  }
+
+  const committedWorktreeChanges = commitThemeWorktreeIfNeeded(repoRoot, state, execGit);
+  execGit(repoRoot, ["merge", "--no-ff", "--no-edit", state.branch], { cwd: repoRoot });
+  if (existsSync(state.worktree_path)) {
+    execGit(repoRoot, ["worktree", "remove", state.worktree_path], { cwd: repoRoot });
+  }
+  execGit(repoRoot, ["branch", "-d", state.branch], { cwd: repoRoot });
+
+  return {
+    committed_worktree_changes: committedWorktreeChanges,
+  };
 }
 
 export function startTheme({
@@ -79,12 +138,43 @@ export function startTheme({
   requiredChecks = [],
   harnessPolicy = HARNESS_POLICY_DEFAULT,
   harnessReason = "",
+  mergePolicy = MERGE_POLICY_MANUAL,
+  rollbackClass = ROLLBACK_CLASS_MANUAL,
   execGit = runGit,
 } = {}) {
   assertRootOwnedCwd(repoRoot, cwd, "node scripts/theme-ops.mjs start --slug <slug>");
 
   if (!themeName || !slug) {
     throw new HarnessError("`start` requires both `--theme` and `--slug`.", {
+      status: "action_required",
+    });
+  }
+
+  const normalizedMergePolicy = String(mergePolicy || MERGE_POLICY_MANUAL).trim() || MERGE_POLICY_MANUAL;
+  const normalizedRollbackClass = String(rollbackClass || ROLLBACK_CLASS_MANUAL).trim() || ROLLBACK_CLASS_MANUAL;
+  if (![MERGE_POLICY_MANUAL, MERGE_POLICY_AUTO_AFTER_GREEN].includes(normalizedMergePolicy)) {
+    throw new HarnessError("Unsupported merge policy.", {
+      status: "action_required",
+      details: {
+        merge_policy: normalizedMergePolicy,
+      },
+    });
+  }
+  if (![ROLLBACK_CLASS_MANUAL, ROLLBACK_CLASS_SIMPLE_REVERT].includes(normalizedRollbackClass)) {
+    throw new HarnessError("Unsupported rollback class.", {
+      status: "action_required",
+      details: {
+        rollback_class: normalizedRollbackClass,
+      },
+    });
+  }
+  if (normalizedMergePolicy === MERGE_POLICY_AUTO_AFTER_GREEN && expectedEndState !== "merge_and_delete") {
+    throw new HarnessError("`auto_after_green` requires `--expected-end-state merge_and_delete`.", {
+      status: "action_required",
+    });
+  }
+  if (normalizedMergePolicy === MERGE_POLICY_AUTO_AFTER_GREEN && normalizedRollbackClass !== ROLLBACK_CLASS_SIMPLE_REVERT) {
+    throw new HarnessError("`auto_after_green` requires `--rollback-class simple_revert`.", {
       status: "action_required",
     });
   }
@@ -101,6 +191,8 @@ export function startTheme({
         branch: existing.branch,
         worktree_path: existing.worktree_path,
         brief_path: existing.brief_path,
+        merge_policy: existing.merge_policy,
+        rollback_class: existing.rollback_class,
       },
     });
   }
@@ -123,6 +215,8 @@ export function startTheme({
     requiredChecks,
     harnessPolicy,
     harnessReason,
+    mergePolicy: normalizedMergePolicy,
+    rollbackClass: normalizedRollbackClass,
   });
 
   writeText(state.brief_path, briefStubContent(state));
@@ -139,6 +233,8 @@ export function startTheme({
       state_path: targetStatePath,
       required_checks: state.required_checks,
       harness_policy: state.harness_policy,
+      merge_policy: state.merge_policy,
+      rollback_class: state.rollback_class,
     },
   });
 }
@@ -149,6 +245,7 @@ export function statusTheme({
 } = {}) {
   const state = loadState(repoRoot, slug);
   const guidance = determineGuidance(state);
+  const mergeGate = mergeGatePayload(state);
 
   return actionPayload({
     status: "pass",
@@ -162,11 +259,14 @@ export function statusTheme({
       state_path: statePath(repoRoot, slug),
       brief_path: state.brief_path,
       required_checks: state.required_checks,
+      merge_policy: state.merge_policy,
+      rollback_class: state.rollback_class,
       harness_guidance: guidance,
       current_workflow_status: guidance.workflow_status,
       aftercare_recorded: aftercareIsRecorded(state),
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
+      ...mergeGate,
     },
   });
 }
@@ -203,6 +303,8 @@ export function setupTheme({
       harness_policy_reason: state.harness_policy_reason,
       brief_path: state.brief_path,
       state_path: statePath(repoRoot, slug),
+      merge_policy: state.merge_policy,
+      rollback_class: state.rollback_class,
     },
   });
 }
@@ -295,12 +397,62 @@ export function closeTheme({
   repoRoot = REPO_ROOT,
   cwd = process.cwd(),
   slug,
+  waitForMerge = false,
+  execGit = runGit,
 } = {}) {
   assertRootOwnedCwd(repoRoot, cwd, "node scripts/theme-ops.mjs close --slug <slug>");
 
   const state = loadState(repoRoot, slug);
   const guidance = determineGuidance(state);
+  const mergeGate = mergeGatePayload(state);
   const ready = guidance.policy === HARNESS_POLICY_DEFAULT ? closeoutIsReady(state) : true;
+
+  if (waitForMerge && mergePolicyUsesWaitPath(state.merge_policy)) {
+    if (!mergeGate.merge_gate_ready) {
+      return actionPayload({
+        status: "action_required",
+        message: "Routine merge gate is not satisfied yet.",
+        details: {
+          slug,
+          canonical_repo_root: repoRoot,
+          owner_boundary: ownerBoundary(),
+          harness_policy: guidance.policy,
+          harness_policy_reason: guidance.reason,
+          rollback_class: state.rollback_class,
+          aftercare_recorded: aftercareIsRecorded(state),
+          plain_language_summary_recorded: summaryIsRecorded(state),
+          closeout_ready: closeoutIsReady(state),
+          ready,
+          wait_for_merge: true,
+          next_action: mergeGate.merge_gate_next_action,
+          ...mergeGate,
+        },
+      });
+    }
+
+    const mergeResult = mergeAndCleanupTheme(repoRoot, state, execGit);
+    return actionPayload({
+      status: "pass",
+      message: "Routine theme merged into local main and cleaned up.",
+      details: {
+        slug,
+        canonical_repo_root: repoRoot,
+        owner_boundary: ownerBoundary(),
+        harness_policy: guidance.policy,
+        harness_policy_reason: guidance.reason,
+        rollback_class: state.rollback_class,
+        aftercare_recorded: aftercareIsRecorded(state),
+        plain_language_summary_recorded: summaryIsRecorded(state),
+        closeout_ready: closeoutIsReady(state),
+        ready,
+        wait_for_merge: true,
+        merged: true,
+        next_action: "Local merge-and-cleanup completed. Push, PR, and remote branch cleanup remain repo-local follow-up work.",
+        ...mergeGate,
+        ...mergeResult,
+      },
+    });
+  }
 
   return actionPayload({
     status: "pass",
@@ -311,14 +463,20 @@ export function closeTheme({
       owner_boundary: ownerBoundary(),
       harness_policy: guidance.policy,
       harness_policy_reason: guidance.reason,
+      merge_policy: state.merge_policy,
+      rollback_class: state.rollback_class,
       current_workflow_status: guidance.workflow_status,
       aftercare_recorded: aftercareIsRecorded(state),
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
       ready,
-      next_action: ready
-        ? "Use the repo's normal git closeout flow manually. `theme-ops.mjs close` does not automate commit, push, PR, merge, or cleanup in v1."
-        : guidance.next_action,
+      wait_for_merge: waitForMerge,
+      next_action: waitForMerge && mergeGate.merge_gate_required
+        ? mergeGate.merge_gate_next_action
+        : ready
+          ? "Use the repo's normal git closeout flow manually."
+          : guidance.next_action,
+      ...mergeGate,
     },
   });
 }
@@ -341,6 +499,8 @@ function parseCommandLine() {
           "check-cmd": { type: "string", multiple: true },
           "harness-policy": { type: "string" },
           "harness-reason": { type: "string" },
+          "merge-policy": { type: "string" },
+          "rollback-class": { type: "string" },
         },
       });
       return {
@@ -356,6 +516,8 @@ function parseCommandLine() {
           requiredChecks: values["check-cmd"] || [],
           harnessPolicy: values["harness-policy"] || HARNESS_POLICY_DEFAULT,
           harnessReason: values["harness-reason"] || "",
+          mergePolicy: values["merge-policy"] || MERGE_POLICY_MANUAL,
+          rollbackClass: values["rollback-class"] || ROLLBACK_CLASS_MANUAL,
         },
       };
     }
@@ -366,12 +528,14 @@ function parseCommandLine() {
         args: rest,
         options: {
           slug: { type: "string" },
+          "wait-for-merge": { type: "boolean" },
         },
       });
       return {
         command,
         values: {
           slug: values.slug,
+          waitForMerge: Boolean(values["wait-for-merge"]),
         },
       };
     }

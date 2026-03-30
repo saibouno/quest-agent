@@ -64,12 +64,12 @@
 
 - `node scripts/theme-ops.mjs start ...`
   - Creates the branch/worktree when missing.
-  - Seeds `required_checks`, `harness_policy`, and the canonical brief stub at `output/theme_ops/<slug>-brief.md`.
+  - Seeds `required_checks`, `harness_policy`, `merge_policy`, `rollback_class`, and the canonical brief stub at `output/theme_ops/<slug>-brief.md`.
   - Uses `default` as the soft default policy for new normal themes.
 - `node scripts/theme-ops.mjs setup --slug <slug>`
   - Refreshes explicit `default`, `exempt`, and `legacy` guidance metadata without changing the real workflow progress.
 - `node scripts/theme-ops.mjs status --slug <slug>`
-  - Reports the canonical repo root, owner boundary, saved checks, current workflow status, and `default` / `exempt` / `legacy` harness guidance.
+  - Reports the canonical repo root, owner boundary, saved checks, current workflow status, `default` / `exempt` / `legacy` harness guidance, and the shared `merge_gate_*` payload.
   - Uses guidance-only labels such as `not_started`, `not_applicable`, and `legacy` when no harness workflow state exists yet.
 - `node scripts/theme-harness.mjs scaffold-plan --slug <slug>`
   - Uses the canonical `brief_path` from theme state when `--brief-path` is omitted.
@@ -79,6 +79,7 @@
 - `node scripts/theme-harness.mjs review-plan --slug <slug>`
   - Runs deterministic structure review through the shared pure evaluator in `scripts/theme-harness-review-core.mjs`.
   - Writes `review_results` with stable `schema_version`, `checklist_results`, and `finding_codes`.
+  - Requires explicit `Merge Policy` and `Rollback Class` lines in the generated plan summary.
   - Records `plan_reviewed` only when findings are empty.
 - `node scripts/theme-harness.mjs set-status --slug <slug> --to implementing|blocked`
   - Allows only:
@@ -102,12 +103,12 @@
     - `workflow_status == verified`
     - `aftercare.checked_at`
     - `plain_language_summary.recorded_at`
-  - Generates `output/theme_ops/<slug>-closeout.md` and records `closeout_ready`.
+  - Generates `output/theme_ops/<slug>-closeout.md` with required `Known Issues / Follow-ups` content and records `closeout_ready`.
 - `node scripts/theme-ops.mjs close --slug <slug>`
-  - Is a local readiness and remediation command in v1.
+  - Is the repo-local closeout owner in v1.
   - Must run from the canonical repo root.
-  - Does not commit, push, create PRs, merge, or clean up branches/worktrees in this version.
-  - Does not hard-block `default` themes yet; it reports readiness and next actions instead.
+  - `merge_policy=manual` keeps the existing human merge checkpoint.
+  - `merge_policy=auto_after_green` uses `close --wait-for-merge` to finish the local merge-and-cleanup path once the shared merge gate is ready.
 
 ## Verification Reality
 
@@ -123,5 +124,6 @@
 
 - v1 makes the harness the default route for new normal themes, but only as a soft default.
 - `status` and `close` should still explain when a theme is `exempt` or `legacy`.
+- `status` and `close` expose the shared routine merge contract fields: `merge_policy`, `current_workflow_status`, `merge_gate_required`, `merge_gate_ready`, `merge_gate_reason`, and `merge_gate_next_action`.
 - `approved` and `rejected` remain human-only workflow states.
 - Generated harness artifacts are scratch-only under `output/theme_ops/`.

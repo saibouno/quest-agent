@@ -37,7 +37,7 @@ This is the canonical skill for the minimal harnessed theme loop in `quest-agent
   - `node scripts/theme-harness.mjs verify --slug "<slug>"`
   - `node scripts/theme-harness.mjs scaffold-closeout --slug "<slug>"`
 - Root-owned:
-  - `node scripts/theme-ops.mjs start ...`
+- `node scripts/theme-ops.mjs start ... --merge-policy manual|auto_after_green --rollback-class manual|simple_revert`
   - `node scripts/theme-ops.mjs setup --slug "<slug>"`
   - `node scripts/theme-ops.mjs aftercare --slug "<slug>" ...`
   - `node scripts/theme-ops.mjs explain --slug "<slug>" ...`
@@ -58,10 +58,11 @@ This is the canonical skill for the minimal harnessed theme loop in `quest-agent
 9. from the root repo checkout, run `node scripts/theme-ops.mjs explain --slug "<slug>" ...`
 10. `node scripts/theme-harness.mjs scaffold-closeout --slug "<slug>"`
 11. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug "<slug>"`
+   - Use `--wait-for-merge` when `merge_policy=auto_after_green` and the merge gate is ready.
 
 ## Repo Reality
 
-- `theme-ops.mjs` owns only state bootstrap, read-only status, aftercare, explain, and local closeout readiness in v1.
+- `theme-ops.mjs` also owns the routine-lane `merge_gate_*` payload and the eligible local `--wait-for-merge` merge-and-cleanup path.
 - `theme-harness.mjs` owns only plan, review, workflow status, verification, and closeout draft artifacts.
 - `review-plan` is a first-class standard step in the default harness route.
 - `approved` and `rejected` remain human-only workflow states.

@@ -1,6 +1,6 @@
 # Theme Loop Review Checklist
 
-Checklist version: 1
+Checklist version: 2
 
 Use this checklist through `node scripts/theme-harness.mjs review-plan --slug <slug>`.
 
@@ -18,6 +18,10 @@ Use this checklist through `node scripts/theme-harness.mjs review-plan --slug <s
   - The generated plan does not keep any `<fill:...>`, `{{...}}`, or `TBD` placeholders.
 - `hot_file_shared_core_risk_addressed` | hot file/shared-core risk addressed | `missing_shared_core_or_hot_file_risk`
   - `## Summary` includes `Shared-core / hot-file risk`.
+- `merge_policy_explicit` | merge policy explicit | `missing_merge_policy`
+  - `## Summary` includes `Merge Policy`.
+- `rollback_class_explicit` | rollback class explicit | `missing_rollback_class`
+  - `## Summary` includes `Rollback Class`.
 - `verification_command_concrete` | verification command concrete | `missing_verify_command`
   - `## Test Plan` includes at least one explicit verification command.
 

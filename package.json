@@ -15,8 +15,8 @@
                     "harness:test:noprofile":  "cmd /d /s /c \"node --test --experimental-test-isolation=none tests/theme-harness.test.mjs tests/theme-ops.test.mjs\"",
                     "dogfood:backup:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-backup.ps1\"",
                     "dogfood:restore:check:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-restore-check.ps1\"",
-                    "lint:noprofile":  "cmd /d /s /c \"eslint . --max-warnings=0\"",
-                    "typecheck:noprofile":  "cmd /d /s /c \"tsc --noEmit\"",
+                    "lint:noprofile":  "cmd /d /s /c \"node scripts/lint-noprofile.mjs\"",
+                    "typecheck:noprofile":  "cmd /d /s /c \"node scripts/typecheck-noprofile.mjs\"",
                     "guardrails:noprofile":  "cmd /d /s /c \"node scripts/ops-guardrails.mjs\"",
                     "copy:audit":  "node scripts/copy-audit.mjs"
                 },

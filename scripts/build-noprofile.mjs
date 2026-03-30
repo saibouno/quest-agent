@@ -3,8 +3,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const require = createRequire(import.meta.url);
+import { detectCanonicalRepoRoot } from "./theme-harness-lib.mjs";
+
+const checkoutRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = detectCanonicalRepoRoot(checkoutRoot);
+const require = createRequire(path.join(repoRoot, "package.json"));
 
 const env = {
   ...process.env,
@@ -13,7 +16,7 @@ const env = {
 
 function runNodeScript(scriptPath, args = []) {
   const result = spawnSync(process.execPath, [scriptPath, ...args], {
-    cwd: repoRoot,
+    cwd: checkoutRoot,
     stdio: "inherit",
     env,
   });
@@ -105,10 +108,10 @@ function patchNextWorker() {
 }
 
 async function runBuild() {
-  runNodeScript("./node_modules/typescript/bin/tsc", ["--noEmit"]);
+  runNodeScript(path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"), ["--noEmit"]);
   patchNextWorker();
   const build = require("next/dist/build").default;
-  await build(repoRoot);
+  await build(checkoutRoot);
 }
 
 runBuild()
