@@ -35,20 +35,11 @@ import {
 
 const REPO_ROOT = getRepoRootFromImport(import.meta.url);
 
-function quoteForCmd(value) {
-  return `"${String(value).replace(/"/g, '\\"')}"`;
-}
-
 function runGit(repoRoot, args, { cwd = repoRoot } = {}) {
-  const result = process.platform === "win32"
-    ? spawnSync("cmd.exe", ["/d", "/s", "/c", `git ${args.map(quoteForCmd).join(" ")}`], {
-        cwd,
-        encoding: "utf8",
-      })
-    : spawnSync("git", args, {
-        cwd,
-        encoding: "utf8",
-      });
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+  });
 
   if (result.error) {
     throw new HarnessError("Git command failed.", {
