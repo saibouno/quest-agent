@@ -20,6 +20,6 @@
 
 {{VERIFICATION}}
 
-## Unresolved Risk
+## Known Issues / Follow-ups
 
-{{UNRESOLVED_RISK}}
+{{KNOWN_ISSUES}}

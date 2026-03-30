@@ -14,12 +14,12 @@ Use this thin entry when a Quest Agent theme needs the repo-local harness workfl
 
 ## Root-Owned Commands
 
-- `node scripts/theme-ops.mjs start ...`
+- `node scripts/theme-ops.mjs start ... --merge-policy manual|auto_after_green --rollback-class manual|simple_revert`
 - `node scripts/theme-ops.mjs setup --slug "<slug>"`
 - `node scripts/theme-ops.mjs status --slug "<slug>"`
 - `node scripts/theme-ops.mjs aftercare --slug "<slug>" ...`
 - `node scripts/theme-ops.mjs explain --slug "<slug>" ...`
-- `node scripts/theme-ops.mjs close --slug "<slug>"`
+- `node scripts/theme-ops.mjs close --slug "<slug>" [--wait-for-merge]`
 
 ## Worktree-Owned Commands
 

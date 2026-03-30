@@ -10,6 +10,8 @@ Use this template through `node scripts/theme-harness.mjs scaffold-plan --slug <
 - Done condition: {{DONE_CONDITION}}
 - Expected end state: {{EXPECTED_END_STATE}}
 - Shared-core / hot-file risk: {{SHARED_CORE_RISK}}
+- Merge Policy: `{{MERGE_POLICY}}`
+- Rollback Class: `{{ROLLBACK_CLASS}}`
 - Source brief: `{{BRIEF_PATH}}`
 
 ## Key Changes

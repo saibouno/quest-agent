@@ -6,10 +6,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scaffoldCloseout, reviewPlan, scaffoldPlan, setStatus, verifyTheme } from "../scripts/theme-harness.mjs";
+import { evaluatePlanMarkdown } from "../scripts/theme-harness-review-core.mjs";
 import { recordAftercare, recordExplain, startTheme } from "../scripts/theme-ops.mjs";
 import { loadState } from "../scripts/theme-harness-lib.mjs";
 
 const CURRENT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const reviewFixtures = JSON.parse(
+  readFileSync(path.join(CURRENT_REPO_ROOT, "tests", "fixtures", "theme-harness-review-cases.json"), "utf8"),
+);
 
 function fakeGitExecutor(repoRoot, args) {
   if (args[0] !== "worktree" || args[1] !== "add") {
@@ -159,6 +163,14 @@ test("review-plan records pass and revise_required results", (t) => {
   assert.ok(state.harness.review_results.finding_codes.includes("missing_approval_boundary"));
 });
 
+test("review evaluator matches merge contract golden cases", () => {
+  for (const fixture of reviewFixtures) {
+    const result = evaluatePlanMarkdown(fixture.plan_markdown);
+    assert.equal(result.result, fixture.expected_result, fixture.case_id);
+    assert.deepEqual(result.finding_codes, fixture.expected_finding_codes, fixture.case_id);
+  }
+});
+
 test("set-status rejects human-only and owner-only targets", (t) => {
   const repoRoot = createFixtureRepo(t, "status");
   const slug = "status";
@@ -220,4 +232,5 @@ test("scaffold-closeout gates on aftercare and explain, then succeeds", (t) => {
   const updated = loadState(repoRoot, slug);
   assert.equal(updated.harness.workflow_status, "closeout_ready");
   assert.ok(existsSync(updated.harness.closeout_path));
+  assert.match(readFileSync(updated.harness.closeout_path, "utf8"), /## Known Issues \/ Follow-ups/u);
 });

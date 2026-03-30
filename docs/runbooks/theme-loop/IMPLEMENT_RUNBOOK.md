@@ -23,6 +23,7 @@ Use this runbook when a theme should follow the minimal harness loop.
 ## Standard Order
 
 1. `node scripts/theme-ops.mjs start ...`
+   - Pick `--merge-policy manual|auto_after_green` and `--rollback-class manual|simple_revert` at theme start.
 2. if this is an existing pre-adoption theme state, run `node scripts/theme-ops.mjs setup --slug <slug>` from the root checkout to refresh explicit harness guidance metadata
 3. fill `output/theme_ops/<slug>-brief.md` with the confirmed brief and remove the stub sentinel
 4. `node scripts/theme-harness.mjs scaffold-plan --slug <slug>`
@@ -34,6 +35,8 @@ Use this runbook when a theme should follow the minimal harness loop.
 10. from the root repo checkout, run `node scripts/theme-ops.mjs explain --slug <slug> ...`
 11. `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
 12. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug <slug>`
+   - `merge_policy=manual` keeps the existing human merge checkpoint.
+   - `merge_policy=auto_after_green` should use `node scripts/theme-ops.mjs close --slug <slug> --wait-for-merge` once the merge gate is ready.
 
 ## Verification Reality
 
@@ -56,4 +59,5 @@ Use this runbook when a theme should follow the minimal harness loop.
 
 - New normal themes use this harness route by default.
 - `discard`, `remote_only_reference`, explicit exempt themes, and legacy themes should not be shown as active default themes.
-- `close` reports local readiness and next steps, but it does not hard-gate default themes yet.
+- `auto_after_green` is only for bounded routine themes and requires `rollback_class=simple_revert`.
+- `close` keeps the manual lane as a readiness command and lets the routine lane finish eligible local merge-and-cleanup work with `--wait-for-merge`.

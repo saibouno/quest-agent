@@ -26,7 +26,7 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - Create GitHub PRs in Japanese by default.
 - Theme harness runtime artifacts stay scratch-only under `output/theme_ops/`.
 - Theme harness control lives in `scripts/theme-ops.mjs` and `scripts/theme-harness.mjs`; do not reintroduce Python for this loop in v1.
-- `node scripts/theme-ops.mjs close --slug <slug>` is a repo-local closeout readiness command in v1. It does not own commit, push, PR, merge, or cleanup automation yet.
+- `node scripts/theme-ops.mjs close --slug <slug>` keeps the manual lane as a repo-local readiness command in v1. `node scripts/theme-ops.mjs close --slug <slug> --wait-for-merge` may finish eligible `auto_after_green` themes through the local merge-and-cleanup path.
 
 ## Branch And Preview Rules
 - Default branch is `main`.

@@ -1,6 +1,6 @@
 import { parseMarkdownSections, readSummaryField } from "./theme-harness-lib.mjs";
 
-export const CHECKLIST_VERSION = 1;
+export const CHECKLIST_VERSION = 2;
 
 const CHECKS = [
   {
@@ -56,6 +56,24 @@ const CHECKS = [
       return Boolean(readSummaryField(sections.Summary || "", "Shared-core / hot-file risk"));
     },
     failure: "Summary is missing the shared-core / hot-file risk line.",
+  },
+  {
+    item_id: "merge_policy_explicit",
+    label: "merge policy explicit",
+    finding_code: "missing_merge_policy",
+    passes(sections) {
+      return Boolean(readSummaryField(sections.Summary || "", "Merge Policy"));
+    },
+    failure: "Summary is missing a concrete merge policy.",
+  },
+  {
+    item_id: "rollback_class_explicit",
+    label: "rollback class explicit",
+    finding_code: "missing_rollback_class",
+    passes(sections) {
+      return Boolean(readSummaryField(sections.Summary || "", "Rollback Class"));
+    },
+    failure: "Summary is missing a concrete rollback class.",
   },
   {
     item_id: "verification_command_concrete",

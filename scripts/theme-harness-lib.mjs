@@ -9,6 +9,19 @@ export const BRIEF_STUB_SENTINEL = "<!-- theme-brief:fill-me -->";
 export const HARNESS_POLICY_DEFAULT = "default";
 export const HARNESS_POLICY_EXEMPT = "exempt";
 export const HARNESS_POLICY_LEGACY = "legacy";
+export const MERGE_POLICY_MANUAL = "manual";
+export const MERGE_POLICY_AUTO_AFTER_GREEN = "auto_after_green";
+export const ROLLBACK_CLASS_MANUAL = "manual";
+export const ROLLBACK_CLASS_SIMPLE_REVERT = "simple_revert";
+export const MERGE_GATE_REASON_POLICY_MANUAL = "policy_manual";
+export const MERGE_GATE_REASON_ELIGIBLE_READY = "eligible_ready";
+export const MERGE_GATE_REASON_MISSING_CONFIRMED_BRIEF = "missing_confirmed_brief";
+export const MERGE_GATE_REASON_PLAN_NOT_REVIEWED = "plan_not_reviewed";
+export const MERGE_GATE_REASON_CHECKS_NOT_GREEN = "checks_not_green";
+export const MERGE_GATE_REASON_CLOSEOUT_MISSING = "closeout_missing";
+export const MERGE_GATE_REASON_KNOWN_ISSUES_MISSING = "known_issues_missing";
+export const MERGE_GATE_REASON_ROLLBACK_NOT_SIMPLE_REVERT = "rollback_not_simple_revert";
+export const MERGE_GATE_REASON_NOT_ROUTINE_ELIGIBLE = "not_routine_eligible";
 
 export const WORKFLOW_STATUSES = new Set([
   "plan_drafted",
@@ -193,6 +206,8 @@ export function createInitialState({
   requiredChecks = [],
   harnessPolicy = HARNESS_POLICY_DEFAULT,
   harnessReason = "",
+  mergePolicy = MERGE_POLICY_MANUAL,
+  rollbackClass = ROLLBACK_CLASS_MANUAL,
 }) {
   const normalizedPolicy = harnessPolicy || HARNESS_POLICY_DEFAULT;
 
@@ -210,6 +225,8 @@ export function createInitialState({
       required_checks: requiredChecks,
       harness_policy: normalizedPolicy,
       harness_policy_reason: harnessReason || defaultPolicyReason(normalizedPolicy),
+      merge_policy: mergePolicy || MERGE_POLICY_MANUAL,
+      rollback_class: rollbackClass || ROLLBACK_CLASS_MANUAL,
       brief_path: briefPathFor(repoRoot, slug),
       created_at: nowIso(),
       updated_at: nowIso(),
@@ -229,6 +246,8 @@ export function ensureStateShape(state, { repoRoot, slug }) {
   const resolvedRepoRoot = repoRoot || normalizePath(state.repo_root || process.cwd());
   const resolvedSlug = slug || String(state.slug || "").trim();
   const resolvedPolicy = String(state.harness_policy || "").trim() || HARNESS_POLICY_LEGACY;
+  const resolvedMergePolicy = String(state.merge_policy || "").trim() || MERGE_POLICY_MANUAL;
+  const resolvedRollbackClass = String(state.rollback_class || "").trim() || ROLLBACK_CLASS_MANUAL;
   const harness = state.harness && typeof state.harness === "object" ? { ...state.harness } : {};
   const aftercare = state.aftercare && typeof state.aftercare === "object" ? { ...state.aftercare } : {};
   const summary = state.plain_language_summary && typeof state.plain_language_summary === "object"
@@ -248,6 +267,8 @@ export function ensureStateShape(state, { repoRoot, slug }) {
     required_checks: ensureTextEntries(state.required_checks),
     harness_policy: resolvedPolicy,
     harness_policy_reason: String(state.harness_policy_reason || defaultPolicyReason(resolvedPolicy)),
+    merge_policy: resolvedMergePolicy,
+    rollback_class: resolvedRollbackClass,
     brief_path: String(state.brief_path || briefPathFor(resolvedRepoRoot, resolvedSlug)),
     created_at: String(state.created_at || nowIso()),
     updated_at: String(state.updated_at || nowIso()),
@@ -372,7 +393,8 @@ export function defaultOutOfScope() {
   return [
     "- Shared extraction with `cafe-agent-os`.",
     "- Eval runners, observability/event log surfaces, or model-policy work beyond this local harness loop.",
-    "- Commit, push, PR, merge, or cleanup automation in `theme-ops.mjs close`.",
+    "- Cross-repo merge executor unification beyond Quest Agent's repo-local routine lane.",
+    "- Remote push, PR creation, and remote branch cleanup automation in `theme-ops.mjs close`.",
   ].join("\n");
 }
 
@@ -412,6 +434,8 @@ export function buildPlanFromBrief({ briefText, state, templateText }) {
     DONE_CONDITION: readSummaryField(summarySection, "Done condition") || state.done_condition || "Finish the requested theme and verify the saved commands.",
     EXPECTED_END_STATE: readSummaryField(summarySection, "Expected end state") || state.expected_end_state || "merge_and_delete",
     SHARED_CORE_RISK: readSummaryField(summarySection, "Shared-core / hot-file risk") || defaultSharedCoreRisk(),
+    MERGE_POLICY: state.merge_policy || MERGE_POLICY_MANUAL,
+    ROLLBACK_CLASS: state.rollback_class || ROLLBACK_CLASS_MANUAL,
     BRIEF_PATH: state.brief_path,
     KEY_CHANGES: sections["Key Changes"] || "- Capture the implementation changes in the canonical brief before scaffold-plan.",
     IMPORTANT_INTERFACES: sections["Important Interfaces"] || defaultImportantInterfaces(),
@@ -439,6 +463,8 @@ export function briefStubContent(state) {
     `- Goal: ${state.goal || "<fill:goal>"}`,
     `- Done condition: ${state.done_condition || "<fill:done-condition>"}`,
     `- Expected end state: ${state.expected_end_state || "merge_and_delete"}`,
+    `- Merge Policy: \`${state.merge_policy || MERGE_POLICY_MANUAL}\``,
+    `- Rollback Class: \`${state.rollback_class || ROLLBACK_CLASS_MANUAL}\``,
     "",
     "## Key Changes",
     "",
@@ -539,6 +565,11 @@ export function renderCloseoutDraft(state, templateText) {
     ? renderList(state.harness.recent_decisions)
     : "- Local harness adoption for deterministic plan, review, verification, and closeout flow.";
   const impactLines = ensureTextEntries([...summary.can_do, ...summary.ops_change]);
+  const knownIssues = ensureTextEntries([
+    ...state.harness.known_issues,
+    ...state.harness.follow_ups,
+    ...state.aftercare.follow_up_debt,
+  ]);
 
   return renderTemplate(templateText, {
     PLAIN_LANGUAGE_SUMMARY: summary.one_line || "- Plain-language summary not recorded.",
@@ -546,7 +577,7 @@ export function renderCloseoutDraft(state, templateText) {
     WHY: whyLines,
     IMPACT: renderList(impactLines),
     VERIFICATION: renderValidationRuns(state.harness.validation_runs),
-    UNRESOLVED_RISK: renderList(state.aftercare.follow_up_debt, "- none recorded"),
+    KNOWN_ISSUES: renderList(knownIssues, "- none"),
   }).trimEnd() + "\n";
 }
 
@@ -589,7 +620,7 @@ export function ownerBoundary() {
       "node scripts/theme-ops.mjs setup --slug <slug>",
       "node scripts/theme-ops.mjs aftercare --slug <slug> ...",
       "node scripts/theme-ops.mjs explain --slug <slug> ...",
-      "node scripts/theme-ops.mjs close --slug <slug>",
+      "node scripts/theme-ops.mjs close --slug <slug> [--wait-for-merge]",
     ],
     worktree_owned: [
       "node scripts/theme-harness.mjs scaffold-plan --slug <slug>",
@@ -651,7 +682,9 @@ export function determineGuidance(state) {
     implementing: "Finish implementation and then run `node scripts/theme-harness.mjs verify --slug <slug>`.",
     blocked: "Resolve the blocker and then return to `implementing` with `set-status` or rerun `verify`.",
     verified: `Run \`node scripts/theme-ops.mjs aftercare --slug ${state.slug} ...\`, \`node scripts/theme-ops.mjs explain --slug ${state.slug} ...\`, and then \`node scripts/theme-harness.mjs scaffold-closeout --slug ${state.slug}\`.`,
-    closeout_ready: `Run \`node scripts/theme-ops.mjs close --slug ${state.slug}\` from the repo root.`,
+    closeout_ready: mergePolicyUsesWaitPath(state.merge_policy)
+      ? `Run \`node scripts/theme-ops.mjs close --slug ${state.slug} --wait-for-merge\` from the repo root.`
+      : `Run \`node scripts/theme-ops.mjs close --slug ${state.slug}\` from the repo root.`,
   };
 
   return {
@@ -672,6 +705,171 @@ export function aftercareIsRecorded(state) {
 
 export function closeoutIsReady(state) {
   return String(state.harness.workflow_status || "") === "closeout_ready" && existsSync(state.harness.closeout_path);
+}
+
+export function briefIsConfirmed(state) {
+  return existsSync(state.brief_path) && !hasBriefStubSentinel(readText(state.brief_path));
+}
+
+export function planReviewIsPassed(state) {
+  return existsSync(state.harness.review_path) && String(state.harness.review_results?.result || "") === "pass";
+}
+
+export function latestValidationRunByCommand(state) {
+  const latest = new Map();
+  for (const run of Array.isArray(state.harness.validation_runs) ? state.harness.validation_runs : []) {
+    const command = String(run?.command || "").trim();
+    if (command) {
+      latest.set(command, run);
+    }
+  }
+  return latest;
+}
+
+export function savedRequiredChecksAreGreen(state) {
+  const requiredChecks = ensureTextEntries(state.required_checks);
+  if (!requiredChecks.length) {
+    return false;
+  }
+
+  const latestByCommand = latestValidationRunByCommand(state);
+  return requiredChecks.every((command) => latestByCommand.get(command)?.status === "pass");
+}
+
+export function closeoutSections(state) {
+  if (!existsSync(state.harness.closeout_path)) {
+    return {};
+  }
+
+  return parseMarkdownSections(readText(state.harness.closeout_path));
+}
+
+export function closeoutSectionHasContent(text, { allowNone = false } = {}) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  if (allowNone && /^(?:-\s*)?none(?:\s+recorded)?$/iu.test(normalized)) {
+    return true;
+  }
+
+  return true;
+}
+
+export function closeoutKnownIssuesRecorded(state) {
+  const sections = closeoutSections(state);
+  return closeoutSectionHasContent(
+    sections["Known Issues / Follow-ups"] || sections["Known Issues / Follow-Ups"] || "",
+    { allowNone: true },
+  );
+}
+
+export function mergePolicyUsesWaitPath(mergePolicy) {
+  return String(mergePolicy || "").trim() === MERGE_POLICY_AUTO_AFTER_GREEN;
+}
+
+export function mergeGatePayload(state) {
+  const mergePolicy = String(state.merge_policy || MERGE_POLICY_MANUAL).trim() || MERGE_POLICY_MANUAL;
+  const rollbackClass = String(state.rollback_class || ROLLBACK_CLASS_MANUAL).trim() || ROLLBACK_CLASS_MANUAL;
+  const guidance = determineGuidance(state);
+
+  if (mergePolicy === MERGE_POLICY_MANUAL) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: false,
+      merge_gate_ready: true,
+      merge_gate_reason: MERGE_GATE_REASON_POLICY_MANUAL,
+      merge_gate_next_action: "Merge remains a human checkpoint for this theme.",
+    };
+  }
+
+  if (mergePolicy !== MERGE_POLICY_AUTO_AFTER_GREEN || state.harness_policy !== HARNESS_POLICY_DEFAULT || state.expected_end_state !== "merge_and_delete") {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_NOT_ROUTINE_ELIGIBLE,
+      merge_gate_next_action: "Use `manual` for exempt, legacy, or non-merge-and-delete themes.",
+    };
+  }
+
+  if (rollbackClass !== ROLLBACK_CLASS_SIMPLE_REVERT) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_ROLLBACK_NOT_SIMPLE_REVERT,
+      merge_gate_next_action: `Restart the theme with \`--merge-policy ${MERGE_POLICY_MANUAL}\` or \`--rollback-class ${ROLLBACK_CLASS_SIMPLE_REVERT}\`.`,
+    };
+  }
+
+  if (!briefIsConfirmed(state)) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_MISSING_CONFIRMED_BRIEF,
+      merge_gate_next_action: `Fill the canonical brief at \`${state.brief_path}\` and remove the stub sentinel.`,
+    };
+  }
+
+  if (!planReviewIsPassed(state)) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_PLAN_NOT_REVIEWED,
+      merge_gate_next_action: `Run \`node scripts/theme-harness.mjs review-plan --slug ${state.slug}\`.`,
+    };
+  }
+
+  if (!savedRequiredChecksAreGreen(state)) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_CHECKS_NOT_GREEN,
+      merge_gate_next_action: `Run \`node scripts/theme-harness.mjs verify --slug ${state.slug}\`.`,
+    };
+  }
+
+  if (!closeoutIsReady(state)) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_CLOSEOUT_MISSING,
+      merge_gate_next_action: guidance.next_action,
+    };
+  }
+
+  if (!closeoutKnownIssuesRecorded(state)) {
+    return {
+      merge_policy: mergePolicy,
+      current_workflow_status: guidance.workflow_status,
+      merge_gate_required: true,
+      merge_gate_ready: false,
+      merge_gate_reason: MERGE_GATE_REASON_KNOWN_ISSUES_MISSING,
+      merge_gate_next_action: `Update \`${state.harness.closeout_path}\` so \`## Known Issues / Follow-ups\` is recorded.`,
+    };
+  }
+
+  return {
+    merge_policy: mergePolicy,
+    current_workflow_status: guidance.workflow_status,
+    merge_gate_required: true,
+    merge_gate_ready: true,
+    merge_gate_reason: MERGE_GATE_REASON_ELIGIBLE_READY,
+    merge_gate_next_action: `Run \`node scripts/theme-ops.mjs close --slug ${state.slug} --wait-for-merge\` from the repo root.`,
+  };
 }
 
 export function relativeRepoPath(repoRoot, targetPath) {
