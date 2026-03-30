@@ -37,8 +37,8 @@
 1. `.env.local` を `.env.example` から作る
 2. AI なしで `npm.cmd run dev` を起動する
 3. Intake -> Map -> Today -> Review を一通り操作する
-4. `npm.cmd run lint`
-5. `npm.cmd run build`
+4. `npm.cmd run lint:noprofile`
+5. `npm.cmd run build:noprofile`
 
 ## Non-goals
 - 認証
