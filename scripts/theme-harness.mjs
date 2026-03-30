@@ -43,19 +43,25 @@ function closeoutTemplatePath(repoRoot) {
 }
 
 function runSavedCommand(command, cwd) {
-  const result = spawnSync(command, {
-    cwd,
-    shell: true,
-    encoding: "utf8",
-  });
+  const result = process.platform === "win32"
+    ? spawnSync("cmd.exe", ["/d", "/s", "/c", command], {
+        cwd,
+        encoding: "utf8",
+      })
+    : spawnSync(command, {
+        cwd,
+        shell: true,
+        encoding: "utf8",
+      });
+  const stderr = [result.error?.message || "", String(result.stderr || "").trim()].filter(Boolean).join("\n");
 
   return {
     command,
-    status: result.status === 0 ? "pass" : "fail",
+    status: !result.error && result.status === 0 ? "pass" : "fail",
     exit_code: result.status ?? 1,
     ran_at: nowIso(),
     stdout: String(result.stdout || "").trim(),
-    stderr: String(result.stderr || "").trim(),
+    stderr,
   };
 }
 
