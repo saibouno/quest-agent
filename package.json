@@ -17,6 +17,7 @@
                     "dogfood:restore:check:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-restore-check.ps1\"",
                     "lint:noprofile":  "cmd /d /s /c \"node scripts/lint-noprofile.mjs\"",
                     "typecheck:noprofile":  "cmd /d /s /c \"node scripts/typecheck-noprofile.mjs\"",
+                    "verify:noprofile":  "cmd /d /s /c \"npm.cmd run lint:noprofile && npm.cmd run typecheck:noprofile && npm.cmd run guardrails:noprofile\"",
                     "guardrails:noprofile":  "cmd /d /s /c \"node scripts/ops-guardrails.mjs\"",
                     "copy:audit":  "node scripts/copy-audit.mjs"
                 },

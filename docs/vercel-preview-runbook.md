@@ -28,6 +28,12 @@ Vercel preview environments should not rely on local file writes.
 Quest Agent therefore uses browser `localStorage` only for `preview/demo`.
 `preview/dogfood` is reserved for stable server-backed usage.
 
+## Local automation prep
+
+- Before local verification, CI, or deployment automation work, use `npm.cmd ci` so the install stays pinned to the committed `package-lock.json`.
+- Use `npm.cmd install` only when you intentionally need to change dependencies or refresh the lockfile.
+- The repo-level non-build verification shortcut is `npm.cmd run verify:noprofile`.
+
 ## Recommended branch and project setup
 - keep `main` as the integration branch
 - keep `preview/demo` and `preview/dogfood` as promotion branches

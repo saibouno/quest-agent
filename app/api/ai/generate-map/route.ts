@@ -1,13 +1,17 @@
-import { NextResponse } from "next/server";
-
 import { generateQuestMap } from "@/lib/quest-agent/server/ai";
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { generateMapRequestSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = generateMapRequestSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid Quest Map payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid Quest Map payload.", 400);
     }
 
     const goal = {
@@ -27,8 +31,9 @@ export async function POST(request: Request) {
     };
 
     const map = await generateQuestMap(goal, payload.data.locale);
-    return NextResponse.json({ data: map });
+    return jsonNoStore({ data: map });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to generate Quest Map." }, { status: 500 });
+    logRouteError("api/ai/generate-map", error);
+    return jsonError("Failed to generate Quest Map.", 500);
   }
 }

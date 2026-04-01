@@ -1,18 +1,23 @@
-import { NextResponse } from "next/server";
-
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { selectFocusGoal } from "@/lib/quest-agent/server/store";
 import { focusGoalInputSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = focusGoalInputSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid focus goal payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid focus goal payload.", 400);
     }
 
     const goal = await selectFocusGoal(payload.data);
-    return NextResponse.json({ data: goal });
+    return jsonNoStore({ data: goal });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to change focus goal." }, { status: 500 });
+    logRouteError("api/portfolio/focus", error);
+    return jsonError("Failed to change focus goal.", 500);
   }
 }

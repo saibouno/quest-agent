@@ -1,13 +1,17 @@
-﻿import { NextResponse } from "next/server";
-
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { replaceMap } from "@/lib/quest-agent/server/store";
 import { mapDraftSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = mapDraftSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid map payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid map payload.", 400);
     }
 
     await replaceMap({
@@ -22,9 +26,9 @@ export async function POST(request: Request) {
         })),
       })),
     });
-    return NextResponse.json({ ok: true });
+    return jsonNoStore({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save Quest Map." }, { status: 500 });
+    logRouteError("api/map", error);
+    return jsonError("Failed to save Quest Map.", 500);
   }
 }
-

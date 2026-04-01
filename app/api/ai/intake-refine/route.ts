@@ -1,18 +1,23 @@
-import { NextResponse } from "next/server";
-
 import { generateIntakeRefinement } from "@/lib/quest-agent/server/ai";
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { intakeRefineRequestSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = intakeRefineRequestSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid intake payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid intake payload.", 400);
     }
 
     const refinement = await generateIntakeRefinement(payload.data, payload.data.locale);
-    return NextResponse.json({ data: refinement });
+    return jsonNoStore({ data: refinement });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to refine goal." }, { status: 500 });
+    logRouteError("api/ai/intake-refine", error);
+    return jsonError("Failed to refine goal.", 500);
   }
 }

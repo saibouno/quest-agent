@@ -1,20 +1,24 @@
-import { NextResponse } from "next/server";
-
 import { generateBlockerReroute } from "@/lib/quest-agent/server/ai";
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { getAppState } from "@/lib/quest-agent/server/store";
 import { rerouteRequestSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = rerouteRequestSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid reroute payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid reroute payload.", 400);
     }
 
     const state = await getAppState();
     const goal = payload.data.goalSnapshot ?? (payload.data.goalId ? state.goals.find((item) => item.id === payload.data.goalId) : null);
     if (!goal) {
-      return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+      return jsonError("Goal not found.", 404);
     }
 
     const reroute = await generateBlockerReroute(goal, {
@@ -23,8 +27,9 @@ export async function POST(request: Request) {
       blockerType: payload.data.blockerType,
     }, payload.data.locale);
 
-    return NextResponse.json({ data: reroute });
+    return jsonNoStore({ data: reroute });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to reroute blocker." }, { status: 500 });
+    logRouteError("api/ai/reroute-from-blocker", error);
+    return jsonError("Failed to reroute blocker.", 500);
   }
 }
