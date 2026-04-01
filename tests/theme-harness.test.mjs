@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { scaffoldCloseout, reviewPlan, scaffoldPlan, setStatus, verifyTheme } from "../scripts/theme-harness.mjs";
 import { evaluatePlanMarkdown } from "../scripts/theme-harness-review-core.mjs";
 import { recordAftercare, recordExplain, startTheme } from "../scripts/theme-ops.mjs";
-import { loadState } from "../scripts/theme-harness-lib.mjs";
+import { detectCanonicalRepoRoot, loadState, resolveCheckoutRoots } from "../scripts/theme-harness-lib.mjs";
 
 const CURRENT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const reviewFixtures = JSON.parse(
@@ -34,6 +34,25 @@ function passCommandRunner(command) {
     stdout: "",
     stderr: "",
   };
+}
+
+function fakeGitCommonDirExecutor(commonDir) {
+  return (_checkoutRoot, args) => {
+    assert.deepEqual(args, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    return {
+      status: 0,
+      stdout: `${commonDir}\n`,
+      stderr: "",
+    };
+  };
+}
+
+function failingGitCommonDirExecutor() {
+  return () => ({
+    status: 1,
+    stdout: "",
+    stderr: "fatal: simulated git failure",
+  });
 }
 
 function seedRunbookFiles(repoRoot) {
@@ -120,6 +139,101 @@ function startFixtureTheme(repoRoot, slug, requiredChecks = ["node -e \"process.
   writeFileSync(state.brief_path, confirmedBrief(slug), "utf8");
   return state;
 }
+
+test("resolveCheckoutRoots derives canonical repo root from git common dir in a nested worktree", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-worktree");
+  const checkoutRoot = path.join(repoRoot, ".worktrees", "resolver-worktree");
+  mkdirSync(checkoutRoot, { recursive: true });
+
+  const result = resolveCheckoutRoots(checkoutRoot, {
+    execGit: fakeGitCommonDirExecutor(path.join(repoRoot, ".git", "worktrees", "resolver-worktree")),
+  });
+
+  assert.equal(result.checkoutRoot, checkoutRoot);
+  assert.equal(result.canonicalRepoRoot, repoRoot);
+  assert.equal(result.toolingRoot, path.join(repoRoot, "node_modules"));
+});
+
+test("resolveCheckoutRoots handles non-ASCII canonical paths from git common dir", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-日本語");
+  const checkoutRoot = path.join(repoRoot, ".worktrees", "resolver-unicode");
+  mkdirSync(checkoutRoot, { recursive: true });
+
+  const result = resolveCheckoutRoots(checkoutRoot, {
+    execGit: fakeGitCommonDirExecutor(path.join(repoRoot, ".git", "worktrees", "resolver-unicode")),
+  });
+
+  assert.equal(result.canonicalRepoRoot, repoRoot);
+});
+
+test("resolveCheckoutRoots supports .codex/worktrees path shapes through git common dir", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-codex-shape");
+  const checkoutRoot = path.join(repoRoot, ".codex", "worktrees", "8242", "quest-agent");
+  mkdirSync(checkoutRoot, { recursive: true });
+
+  const result = resolveCheckoutRoots(checkoutRoot, {
+    execGit: fakeGitCommonDirExecutor(path.join(repoRoot, ".git", "worktrees", "quest-agent")),
+  });
+
+  assert.equal(result.canonicalRepoRoot, repoRoot);
+});
+
+test("resolveCheckoutRoots prefers checkout-local node_modules over canonical fallback", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-local-tooling");
+  const checkoutRoot = path.join(repoRoot, ".worktrees", "resolver-local-tooling");
+  mkdirSync(path.join(checkoutRoot, "node_modules"), { recursive: true });
+  mkdirSync(path.join(repoRoot, "node_modules"), { recursive: true });
+
+  const result = resolveCheckoutRoots(checkoutRoot, {
+    execGit: fakeGitCommonDirExecutor(path.join(repoRoot, ".git", "worktrees", "resolver-local-tooling")),
+  });
+
+  assert.equal(result.toolingRoot, path.join(checkoutRoot, "node_modules"));
+});
+
+test("resolveCheckoutRoots falls back to canonical node_modules when checkout-local tooling is absent", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-canonical-tooling");
+  const checkoutRoot = path.join(repoRoot, ".worktrees", "resolver-canonical-tooling");
+  mkdirSync(checkoutRoot, { recursive: true });
+  mkdirSync(path.join(repoRoot, "node_modules"), { recursive: true });
+
+  const result = resolveCheckoutRoots(checkoutRoot, {
+    execGit: fakeGitCommonDirExecutor(path.join(repoRoot, ".git", "worktrees", "resolver-canonical-tooling")),
+  });
+
+  assert.equal(result.toolingRoot, path.join(repoRoot, "node_modules"));
+});
+
+test("resolveCheckoutRoots raises an actionable error when required tooling packages are missing", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-missing-tooling");
+  const checkoutRoot = path.join(repoRoot, ".worktrees", "resolver-missing-tooling");
+  mkdirSync(checkoutRoot, { recursive: true });
+
+  assert.throws(
+    () => resolveCheckoutRoots(checkoutRoot, {
+      execGit: fakeGitCommonDirExecutor(path.join(repoRoot, ".git", "worktrees", "resolver-missing-tooling")),
+      requiredPackages: ["next"],
+    }),
+    (error) => {
+      assert.match(error.message, /npm\.cmd ci/u);
+      assert.match(error.message, new RegExp(repoRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"));
+      return true;
+    },
+  );
+});
+
+test("detectCanonicalRepoRoot falls back to filesystem gitdir parsing when git rev-parse fails", (t) => {
+  const repoRoot = createFixtureRepo(t, "resolver-fallback");
+  const checkoutRoot = path.join(repoRoot, ".worktrees", "resolver-fallback");
+  mkdirSync(checkoutRoot, { recursive: true });
+  writeFileSync(
+    path.join(checkoutRoot, ".git"),
+    `gitdir: ${path.join(repoRoot, ".git", "worktrees", "resolver-fallback")}\n`,
+    "utf8",
+  );
+
+  assert.equal(detectCanonicalRepoRoot(checkoutRoot, { execGit: failingGitCommonDirExecutor() }), repoRoot);
+});
 
 test("scaffold-plan creates canonical plan and status artifacts", (t) => {
   const repoRoot = createFixtureRepo(t, "scaffold");
