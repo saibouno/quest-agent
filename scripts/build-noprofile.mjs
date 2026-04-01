@@ -3,11 +3,13 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { detectCanonicalRepoRoot } from "./theme-harness-lib.mjs";
+import { resolveCheckoutRoots } from "./theme-harness-lib.mjs";
 
-const checkoutRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repoRoot = detectCanonicalRepoRoot(checkoutRoot);
-const require = createRequire(path.join(repoRoot, "package.json"));
+const scriptCheckoutRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const { checkoutRoot, toolingRoot, toolingProjectRoot } = resolveCheckoutRoots(scriptCheckoutRoot, {
+  requiredPackages: ["next", "typescript"],
+});
+const require = createRequire(path.join(toolingProjectRoot, "package.json"));
 
 const env = {
   ...process.env,
@@ -108,7 +110,7 @@ function patchNextWorker() {
 }
 
 async function runBuild() {
-  runNodeScript(path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"), ["--noEmit"]);
+  runNodeScript(path.join(toolingRoot, "typescript", "bin", "tsc"), ["--noEmit"]);
   patchNextWorker();
   const build = require("next/dist/build").default;
   await build(checkoutRoot);

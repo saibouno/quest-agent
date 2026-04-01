@@ -2,14 +2,16 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { detectCanonicalRepoRoot } from "./theme-harness-lib.mjs";
+import { resolveCheckoutRoots } from "./theme-harness-lib.mjs";
 
-const checkoutRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repoRoot = detectCanonicalRepoRoot(checkoutRoot);
+const scriptCheckoutRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const { checkoutRoot, toolingRoot } = resolveCheckoutRoots(scriptCheckoutRoot, {
+  requiredPackages: ["eslint"],
+});
 
 const result = spawnSync(
   process.execPath,
-  [path.join(repoRoot, "node_modules", "eslint", "bin", "eslint.js"), ".", "--max-warnings=0"],
+  [path.join(toolingRoot, "eslint", "bin", "eslint.js"), ".", "--max-warnings=0"],
   {
     cwd: checkoutRoot,
     stdio: "inherit",

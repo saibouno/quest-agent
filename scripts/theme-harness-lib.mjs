@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -46,7 +47,14 @@ export class HarnessError extends Error {
   }
 }
 
-export function detectCanonicalRepoRoot(checkoutRoot) {
+function runGitCommand(checkoutRoot, args) {
+  return spawnSync("git", args, {
+    cwd: checkoutRoot,
+    encoding: "utf8",
+  });
+}
+
+export function detectCanonicalRepoRootFromFileSystem(checkoutRoot) {
   const gitPath = path.join(checkoutRoot, ".git");
   if (!existsSync(gitPath)) {
     return checkoutRoot;
@@ -74,6 +82,130 @@ export function detectCanonicalRepoRoot(checkoutRoot) {
   }
 
   return checkoutRoot;
+}
+
+export function resolveCanonicalRepoRootFromGitCommonDir(gitCommonDir, checkoutRoot) {
+  const trimmed = String(gitCommonDir || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const resolvedGitCommonDir = path.isAbsolute(trimmed) ? normalizePath(trimmed) : path.resolve(checkoutRoot, trimmed);
+  const parts = resolvedGitCommonDir.split(path.sep);
+  const worktreesIndex = parts.lastIndexOf("worktrees");
+  if (worktreesIndex > 0 && parts[worktreesIndex - 1] === ".git") {
+    return normalizePath(path.dirname(path.dirname(path.dirname(resolvedGitCommonDir))));
+  }
+
+  if (path.basename(resolvedGitCommonDir) === ".git") {
+    return normalizePath(path.dirname(resolvedGitCommonDir));
+  }
+
+  return "";
+}
+
+function gitStdout(checkoutRoot, args, execGit) {
+  const result = execGit(checkoutRoot, args);
+  if (result?.error) {
+    throw result.error;
+  }
+
+  if (result?.status !== 0) {
+    throw new HarnessError("Git command failed.", {
+      status: "action_required",
+      details: {
+        command: `git ${args.join(" ")}`,
+        cwd: checkoutRoot,
+        stdout: String(result?.stdout || "").trim(),
+        stderr: String(result?.stderr || "").trim(),
+      },
+    });
+  }
+
+  return String(result?.stdout || "").trim();
+}
+
+function packageInstallPath(toolingRoot, packageName) {
+  return path.join(toolingRoot, ...String(packageName || "").split("/"), "package.json");
+}
+
+function missingToolingPackagesMessage({
+  checkoutRoot,
+  canonicalRepoRoot,
+  toolingRoot,
+  missingPackages,
+}) {
+  const missingList = missingPackages.map((packageName) => `\`${packageName}\``).join(", ");
+  const useCheckoutInstall = normalizePath(toolingRoot) === normalizePath(path.join(checkoutRoot, "node_modules"));
+  const installRoot = useCheckoutInstall ? checkoutRoot : canonicalRepoRoot;
+  const reason = useCheckoutInstall
+    ? `Checkout-local tooling is preferred when \`${path.join(checkoutRoot, "node_modules")}\` exists.`
+    : `No checkout-local \`node_modules\` directory was found, so the canonical repo root fallback was selected.`;
+
+  return [
+    `Missing required tooling package(s) ${missingList} under \`${toolingRoot}\`.`,
+    reason,
+    `Run \`npm.cmd ci\` in \`${installRoot}\` to restore the expected install before rerunning this command.`,
+  ].join(" ");
+}
+
+export function detectCanonicalRepoRoot(checkoutRoot, { execGit = runGitCommand } = {}) {
+  const normalizedCheckoutRoot = normalizePath(checkoutRoot);
+
+  try {
+    const gitCommonDir = gitStdout(
+      normalizedCheckoutRoot,
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      execGit,
+    );
+    const canonicalRepoRoot = resolveCanonicalRepoRootFromGitCommonDir(gitCommonDir, normalizedCheckoutRoot);
+    if (canonicalRepoRoot) {
+      return canonicalRepoRoot;
+    }
+  } catch {
+    // Fall back to the existing filesystem-based detection for older git or sandbox failures.
+  }
+
+  return detectCanonicalRepoRootFromFileSystem(normalizedCheckoutRoot);
+}
+
+export function resolveCheckoutRoots(checkoutRoot, { execGit = runGitCommand, requiredPackages = [] } = {}) {
+  const normalizedCheckoutRoot = normalizePath(checkoutRoot);
+  const canonicalRepoRoot = detectCanonicalRepoRoot(normalizedCheckoutRoot, { execGit });
+  const checkoutToolingRoot = path.join(normalizedCheckoutRoot, "node_modules");
+  const canonicalToolingRoot = path.join(canonicalRepoRoot, "node_modules");
+  const toolingRoot = existsSync(checkoutToolingRoot) ? checkoutToolingRoot : canonicalToolingRoot;
+  const missingPackages = [...new Set((Array.isArray(requiredPackages) ? requiredPackages : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))]
+    .filter((packageName) => !existsSync(packageInstallPath(toolingRoot, packageName)));
+
+  if (missingPackages.length) {
+    throw new HarnessError(
+      missingToolingPackagesMessage({
+        checkoutRoot: normalizedCheckoutRoot,
+        canonicalRepoRoot,
+        toolingRoot,
+        missingPackages,
+      }),
+      {
+        status: "action_required",
+        details: {
+          checkout_root: normalizedCheckoutRoot,
+          canonical_repo_root: canonicalRepoRoot,
+          tooling_root: toolingRoot,
+          missing_packages: missingPackages,
+        },
+      },
+    );
+  }
+
+  return {
+    checkoutRoot: normalizedCheckoutRoot,
+    canonicalRepoRoot,
+    toolingRoot,
+    toolingProjectRoot: normalizePath(path.dirname(toolingRoot)),
+  };
 }
 
 export function getRepoRootFromImport(importMetaUrl) {
