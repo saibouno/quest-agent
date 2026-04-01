@@ -45,17 +45,25 @@ For promotion flow, backup and rollback helpers, and the environment contract, s
 - The canonical harness skill is `.agents/skills/theme-loop/SKILL.md`.
 - Generated harness artifacts stay scratch-only under `output/theme_ops/`.
 
+## Install and verify baseline
+
+- Use `npm.cmd ci` for a clean install from the committed lockfile before local verification, CI, or preview automation work.
+- Use `npm.cmd install` only when you intentionally want to add/update dependencies or rewrite `package-lock.json`.
+
 ## Helpful commands
 
 | Use | Command |
 | --- | --- |
+| clean install | `npm.cmd ci` |
 | local dev | `npm.cmd run dev` |
 | memory debug | `npm.cmd run dev:inspect` |
 | harness | `npm.cmd run harness:test:noprofile` |
+| repo verify | `npm.cmd run verify:noprofile` |
 | local checks | `npm.cmd run lint:noprofile` |
 | local checks | `npm.cmd run typecheck:noprofile` |
 | local checks | `npm.cmd run build:noprofile` |
 | local checks | `npm.cmd run guardrails:noprofile` |
+| intentional dependency updates | `npm.cmd install` |
 | copy audit | `npm.cmd run copy:audit` |
 | dogfood ops | `npm.cmd run dogfood:backup:noprofile` |
 | dogfood ops | `npm.cmd run dogfood:restore:check:noprofile` |

@@ -1,18 +1,23 @@
-import { NextResponse } from "next/server";
-
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { parkGoal } from "@/lib/quest-agent/server/store";
 import { parkGoalInputSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = parkGoalInputSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid park goal payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid park goal payload.", 400);
     }
 
     const goal = await parkGoal(payload.data);
-    return NextResponse.json({ data: goal });
+    return jsonNoStore({ data: goal });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to park goal." }, { status: 500 });
+    logRouteError("api/portfolio/park", error);
+    return jsonError("Failed to park goal.", 500);
   }
 }

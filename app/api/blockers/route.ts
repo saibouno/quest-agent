@@ -1,20 +1,24 @@
-﻿import { NextResponse } from "next/server";
-
 import { generateBlockerReroute } from "@/lib/quest-agent/server/ai";
+import { assertAllowedOrigin, jsonError, jsonNoStore, logRouteError } from "@/lib/quest-agent/server/http";
 import { createBlocker, getAppState } from "@/lib/quest-agent/server/store";
 import { blockerInputSchema } from "@/lib/quest-agent/validation";
 
 export async function POST(request: Request) {
+  const originError = assertAllowedOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
   try {
     const payload = blockerInputSchema.safeParse(await request.json());
     if (!payload.success) {
-      return NextResponse.json({ error: payload.error.issues[0]?.message ?? "Invalid blocker payload." }, { status: 400 });
+      return jsonError(payload.error.issues[0]?.message ?? "Invalid blocker payload.", 400);
     }
 
     const state = await getAppState();
     const goal = state.goals.find((item) => item.id === payload.data.goalId);
     if (!goal) {
-      return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+      return jsonError("Goal not found.", 404);
     }
 
     const reroute = await generateBlockerReroute(goal, {
@@ -29,8 +33,9 @@ export async function POST(request: Request) {
       acceptedReroute: reroute,
     });
 
-    return NextResponse.json({ data: blocker, reroute });
+    return jsonNoStore({ data: blocker, reroute });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create blocker." }, { status: 500 });
+    logRouteError("api/blockers", error);
+    return jsonError("Failed to create blocker.", 500);
   }
 }

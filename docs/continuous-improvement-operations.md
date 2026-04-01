@@ -44,6 +44,12 @@ It only defines how Quest Agent moves work through `main`, `preview/demo`, and `
 - only `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - never expose `SUPABASE_SERVICE_ROLE_KEY` to the client bundle
 
+## Local install and check baseline
+
+- Use `npm.cmd ci` before local verification, CI, or promotion automation work so dependency state comes from the committed lockfile.
+- Use `npm.cmd install` only when you intentionally want to add/update dependencies or rewrite `package-lock.json`.
+- Use `npm.cmd run verify:noprofile` for the repo's baseline non-build check pass, then layer the remaining required checks on top when the theme demands them.
+
 ## Promotion flow
 1. Land implementation changes in `main` first.
 2. Reflect `main` into `preview/demo` for lightweight validation.
