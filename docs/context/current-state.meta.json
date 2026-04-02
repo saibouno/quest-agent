@@ -1,0 +1,51 @@
+{
+  "updated_at": "2026-04-02T00:00:00+09:00",
+  "owner": "docs/context/adapter.json",
+  "status": "confirmed",
+  "review_at": "2026-04-09T00:00:00+09:00",
+  "supersedes": [],
+  "evidence_quality": "mixed",
+  "source_refs": [
+    {
+      "kind": "markdown",
+      "path_or_uri": "README.md",
+      "locator": "Current flow",
+      "captured_at": "2026-04-02T00:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "AGENTS.md",
+      "locator": "Repo Rules; Verification Commands",
+      "captured_at": "2026-04-02T00:00:00+09:00"
+    },
+    {
+      "kind": "json",
+      "path_or_uri": "output/theme_ops/quest-agent-security-baseline.json",
+      "locator": "aftercare; harness.validation_runs",
+      "captured_at": "2026-04-02T00:00:00+09:00"
+    },
+    {
+      "kind": "json",
+      "path_or_uri": "output/theme_ops/quest-agent-nested-worktree-build-followup-v1.json",
+      "locator": "plain_language_summary; harness.validation_runs",
+      "captured_at": "2026-04-02T00:00:00+09:00"
+    }
+  ],
+  "active_plan_pointer": {
+    "kind": "theme_state",
+    "slug": "quest-agent-security-baseline",
+    "path": "output/theme_ops/quest-agent-security-baseline.json"
+  },
+  "plan_status": "blocked",
+  "blocked_by": [
+    {
+      "id": "nested-worktree-prerender-invariant",
+      "summary": "as of 2026-04-01, `quest-agent-security-baseline` remained blocked by the Next.js `/_not-found` prerender invariant in its nested worktree build.",
+      "observed_at": "2026-04-01T07:04:04.173Z",
+      "evidence_ref": "output/theme_ops/quest-agent-security-baseline.json#validation_runs[build:noprofile@2026-04-01T07:04:04.173Z]",
+      "last_verified_by": "quest-agent-security-baseline / npm.cmd run build:noprofile @ 2026-04-01T07:04:04.173Z"
+    }
+  ],
+  "resume_condition": "the nested worktree build blocker is resolved or the verification lane is redefined onto a non-nested checkout path.",
+  "fallback_focus": "durable-context/docs/non-blocked hygiene themes"
+}
