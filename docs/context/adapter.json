@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "repo": "quest-agent",
+  "owner": "docs/context/adapter.json",
+  "roles": {
+    "state_summary": {
+      "path": "docs/context/current-state.md",
+      "format": "markdown",
+      "update_rule": "Promote only current-relevant operating state that a fresh thread would otherwise have to rediscover."
+    },
+    "active_plan_pointer": {
+      "path": "docs/context/current-state.meta.json",
+      "format": "json",
+      "update_rule": "Keep only the currently active plan pointer, restart metadata, and blocker linkage."
+    },
+    "decision_store": {
+      "path": "docs/context/decisions/*.md",
+      "format": "markdown",
+      "update_rule": "Keep only decisions that still shape future work."
+    },
+    "open_questions": {
+      "path": "docs/context/open-questions.md",
+      "format": "markdown",
+      "update_rule": "Track only unresolved items that change the next safe action."
+    },
+    "metric_source": {
+      "path": "docs/context/metrics-source.md",
+      "format": "markdown",
+      "update_rule": "Point to the trusted metric source and watch item without copying live values."
+    }
+  },
+  "canonical_artifacts": [
+    "docs/context/current-state.md",
+    "docs/context/current-state.meta.json",
+    "docs/context/open-questions.md",
+    "docs/context/decisions/*.md",
+    "docs/context/metrics-source.md"
+  ],
+  "orientation_sources": [
+    "AGENTS.md",
+    "README.md"
+  ],
+  "derived_sources": [
+    {
+      "path_glob": "output/theme_ops/*",
+      "window_rule": "latest 3 themes or 90 days"
+    }
+  ],
+  "fallback_sources": [
+    "chatgpt-thread.md",
+    ".codex-context/*",
+    "data/quest-agent-fallback.json"
+  ],
+  "source_priority": [
+    "canonical",
+    "derived",
+    "fallback"
+  ],
+  "workflow_skills": [
+    ".agents/skills/theme-loop/SKILL.md",
+    ".agents/skills/context-promotion/SKILL.md"
+  ]
+}

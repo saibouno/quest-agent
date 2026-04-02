@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Reuse one deterministic repo-local loop for `plan -> review-plan -> implementation -> verification -> closeout`.
+- Reuse one deterministic repo-local loop for `plan -> review-plan -> implementation -> verification -> aftercare -> explain -> context promotion -> closeout`.
 - Keep Quest Agent's local harness small and repo-owned in v1.
 - Keep `scripts/theme-ops.mjs` as the owner of theme state bootstrap, read-only status, and root-owned aftercare / explain / close commands.
 - Keep `scripts/theme-harness.mjs` as the owner of plan, review, workflow status, verification, and closeout draft artifacts.
@@ -11,7 +11,9 @@
 
 - `AGENTS.md`
 - `README.md`
+- `docs/runbooks/durable-context-promotion.md`
 - `docs/runbooks/theme-loop/*`
+- `.agents/skills/context-promotion/SKILL.md`
 - `.agents/skills/theme-loop/SKILL.md`
 - `scripts/theme-ops.mjs`
 - `scripts/theme-harness.mjs`
@@ -98,6 +100,10 @@
 - `node scripts/theme-ops.mjs explain --slug <slug> ...`
   - Records the plain-language closeout summary in theme state.
   - Must run from the canonical repo root.
+- durable-context promotion
+  - Happens after `aftercare` and `explain`, and before `scaffold-closeout`.
+  - Uses `docs/runbooks/durable-context-promotion.md` and `.agents/skills/context-promotion/SKILL.md`.
+  - Updates only the smallest necessary canonical artifacts under `docs/context/*`.
 - `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
   - Requires:
     - `workflow_status == verified`
@@ -126,4 +132,5 @@
 - `status` and `close` should still explain when a theme is `exempt` or `legacy`.
 - `status` and `close` expose the shared routine merge contract fields: `merge_policy`, `current_workflow_status`, `merge_gate_required`, `merge_gate_ready`, `merge_gate_reason`, and `merge_gate_next_action`.
 - `approved` and `rejected` remain human-only workflow states.
+- Durable-context promotion is a docs-and-skill step in v1, not a separate harness CLI command.
 - Generated harness artifacts are scratch-only under `output/theme_ops/`.

@@ -5,12 +5,18 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 
 ## Read Order
 1. `README.md`
-2. `docs/v0_2-agent-architecture.md`
-3. `docs/v0_2-role-io-contracts.md`
-4. `docs/vercel-preview-runbook.md`
-5. `docs/continuous-improvement-operations.md`
+2. `docs/context/current-state.md`
+3. `docs/context/current-state.meta.json`
+4. `docs/context/open-questions.md`
+5. `docs/context/decisions/*.md`
+6. `docs/v0_2-agent-architecture.md`
+7. `docs/v0_2-role-io-contracts.md`
+8. `docs/vercel-preview-runbook.md`
+9. `docs/continuous-improvement-operations.md`
 
 ## Source Of Truth
+- `README.md` is an orientation source, not the current-state owner.
+- Repo durable context lives under `docs/context/*`, owned by `docs/context/adapter.json`.
 - Product and architecture decisions live in `docs/`.
 - Role prompts live in `prompts/`.
 - Deterministic state, validation, and persistence rules live in `lib/quest-agent/`.
