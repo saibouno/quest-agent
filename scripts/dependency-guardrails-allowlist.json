@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "updated_at": "2026-04-04T00:00:00+09:00",
+    "owner": "scripts/dependency-guardrails-allowlist.json",
+    "review_policy": "Any new or changed install-script package requires explicit allowlist review before it can land."
+  },
+  "packages": {
+    "sharp": {
+      "version": "0.34.5",
+      "reason": "Next.js optionally installs sharp native binaries for image optimization on supported platforms."
+    },
+    "supabase": {
+      "version": "2.82.0",
+      "reason": "The Supabase CLI downloads its reviewed binary during install for local backup and restore operations."
+    },
+    "unrs-resolver": {
+      "version": "1.11.1",
+      "reason": "eslint-import-resolver-typescript depends on the reviewed napi postinstall resolver binding for local linting."
+    }
+  }
+}
