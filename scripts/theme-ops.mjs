@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 
 import {
+  CONTEXT_PROMOTION_STATE_PENDING,
   HARNESS_POLICY_DEFAULT,
   HARNESS_POLICY_EXEMPT,
   HARNESS_POLICY_LEGACY,
@@ -18,15 +19,18 @@ import {
   assertRootOwnedCwd,
   briefStubContent,
   closeoutIsReady,
+  durableDeltaTouchedArtifacts,
   createInitialState,
   determineGuidance,
   getRepoRootFromImport,
+  hashContent,
   loadState,
   mergeGatePayload,
   mergePolicyUsesWaitPath,
   nowIso,
   ownerBoundary,
   printJson,
+  readText,
   saveState,
   statePath,
   summaryIsRecorded,
@@ -70,6 +74,262 @@ function runGit(repoRoot, args, { cwd = repoRoot } = {}) {
 function gitStdout(repoRoot, args, execGit = runGit, cwd = repoRoot) {
   const result = execGit(repoRoot, args, { cwd });
   return String(result?.stdout || "").trim();
+}
+
+const CONTEXT_PROMOTION_SUCCESS_STATES = new Set(["applied", "noop"]);
+const DURABLE_ENTRY_STATUS = new Set(["open", "resolved", "superseded"]);
+const DECISION_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/u;
+const ENTRY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+const MISSING_FILE_HASH = "__missing__";
+
+function durableArtifactAbsolutePath(repoRoot, artifactPath) {
+  return path.join(repoRoot, ...String(artifactPath || "").split("/"));
+}
+
+function normalizeRequiredString(value, label) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    throw new HarnessError(`${label} must be a non-empty string.`, {
+      status: "action_required",
+    });
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value) {
+  return String(value || "").trim();
+}
+
+function normalizeIsoTimestamp(value, label, { allowEmpty = true } = {}) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    if (allowEmpty) {
+      return "";
+    }
+    throw new HarnessError(`${label} must be an ISO-8601 timestamp.`, {
+      status: "action_required",
+    });
+  }
+
+  if (Number.isNaN(Date.parse(normalized))) {
+    throw new HarnessError(`${label} must be an ISO-8601 timestamp.`, {
+      status: "action_required",
+    });
+  }
+
+  return normalized;
+}
+
+function parseJsonFlag(value, label) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new HarnessError(`Malformed ${label}.`, {
+      status: "action_required",
+      details: {
+        label,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+}
+
+function normalizeSourceRefInput(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HarnessError(`${label} must be an object.`, {
+      status: "action_required",
+    });
+  }
+
+  return {
+    kind: normalizeRequiredString(value.kind, `${label}.kind`),
+    path_or_uri: normalizeRequiredString(value.path_or_uri, `${label}.path_or_uri`),
+    locator: normalizeRequiredString(value.locator, `${label}.locator`),
+    captured_at: normalizeIsoTimestamp(value.captured_at, `${label}.captured_at`, { allowEmpty: false }),
+  };
+}
+
+function normalizeSourceRefList(values, label, { required = false } = {}) {
+  const list = Array.isArray(values) ? values : [];
+  if (required && !list.length) {
+    throw new HarnessError(`${label} must include at least one source ref.`, {
+      status: "action_required",
+    });
+  }
+
+  return list.map((value, index) => normalizeSourceRefInput(value, `${label}[${index}]`));
+}
+
+function normalizeDecisionSlug(value, label) {
+  const normalized = normalizeRequiredString(value, label);
+  if (!DECISION_SLUG_PATTERN.test(normalized)) {
+    throw new HarnessError(`${label} must use lowercase letters, numbers, and hyphens only.`, {
+      status: "action_required",
+    });
+  }
+  return normalized;
+}
+
+function normalizeEntryId(value, label) {
+  const normalized = normalizeRequiredString(value, label);
+  if (!ENTRY_ID_PATTERN.test(normalized)) {
+    throw new HarnessError(`${label} must use letters, numbers, dots, underscores, or hyphens only.`, {
+      status: "action_required",
+    });
+  }
+  return normalized;
+}
+
+function normalizeDecisionEntryInput(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HarnessError(`${label} must be an object.`, {
+      status: "action_required",
+    });
+  }
+
+  return {
+    slug: normalizeDecisionSlug(value.slug, `${label}.slug`),
+    title: normalizeRequiredString(value.title, `${label}.title`),
+    decision: normalizeRequiredString(value.decision, `${label}.decision`),
+    why_it_stands: normalizeRequiredString(value.why_it_stands, `${label}.why_it_stands`),
+    operational_consequence: normalizeRequiredString(value.operational_consequence, `${label}.operational_consequence`),
+    source_refs: normalizeSourceRefList(value.source_refs, `${label}.source_refs`, { required: true }),
+  };
+}
+
+function normalizeQuestionEntryInput(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HarnessError(`${label} must be an object.`, {
+      status: "action_required",
+    });
+  }
+
+  const status = normalizeRequiredString(value.status, `${label}.status`);
+  if (!DURABLE_ENTRY_STATUS.has(status)) {
+    throw new HarnessError(`${label}.status must be one of: open, resolved, superseded.`, {
+      status: "action_required",
+    });
+  }
+
+  return {
+    id: normalizeEntryId(value.id, `${label}.id`),
+    summary: normalizeRequiredString(value.summary, `${label}.summary`),
+    impact: normalizeRequiredString(value.impact, `${label}.impact`),
+    next_unlock: normalizeRequiredString(value.next_unlock, `${label}.next_unlock`),
+    status,
+    observed_at: normalizeIsoTimestamp(value.observed_at, `${label}.observed_at`),
+    resolved_at: normalizeIsoTimestamp(value.resolved_at, `${label}.resolved_at`),
+    last_verified_by: normalizeOptionalString(value.last_verified_by),
+    source_refs: normalizeSourceRefList(value.source_refs, `${label}.source_refs`),
+    evidence_ref: normalizeOptionalString(value.evidence_ref),
+  };
+}
+
+function normalizeActivePlanPointerInput(value, label) {
+  if (value === null) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HarnessError(`${label} must be null or an object.`, {
+      status: "action_required",
+    });
+  }
+
+  return {
+    kind: normalizeRequiredString(value.kind, `${label}.kind`),
+    slug: normalizeRequiredString(value.slug, `${label}.slug`),
+    path: normalizeRequiredString(value.path, `${label}.path`),
+  };
+}
+
+function captureDurableDeltaBaseline(repoRoot, artifactPaths) {
+  return Object.fromEntries(
+    [...new Set(Array.isArray(artifactPaths) ? artifactPaths : [])].sort().map((artifactPath) => {
+      const absolutePath = durableArtifactAbsolutePath(repoRoot, artifactPath);
+      const hash = existsSync(absolutePath) ? hashContent(readText(absolutePath)) : MISSING_FILE_HASH;
+      return [artifactPath, hash];
+    }),
+  );
+}
+
+function normalizeExplainDurableDelta({
+  repoRoot,
+  currentFocus = [],
+  nextSafeThemes = [],
+  decisionJson = [],
+  openQuestionJson = [],
+  blockerJson = [],
+  metricWatch = [],
+  activePlanJson = undefined,
+  planStatus = "",
+  resumeCondition = "",
+  fallbackFocusValues = [],
+  sourceRefJson = [],
+} = {}) {
+  if (fallbackFocusValues.length > 1) {
+    throw new HarnessError("`--fallback-focus` accepts only one value.", {
+      status: "action_required",
+    });
+  }
+
+  const normalized = {
+    current_focus: [...new Set((Array.isArray(currentFocus) ? currentFocus : []).map(normalizeOptionalString).filter(Boolean))],
+    next_safe_themes: [...new Set((Array.isArray(nextSafeThemes) ? nextSafeThemes : []).map(normalizeOptionalString).filter(Boolean))],
+    fallback_focus: normalizeOptionalString(fallbackFocusValues[0] || ""),
+    decision_entries: (Array.isArray(decisionJson) ? decisionJson : [])
+      .map((value, index) => normalizeDecisionEntryInput(parseJsonFlag(value, "--decision-json"), `decision_entries[${index}]`)),
+    open_question_entries: (Array.isArray(openQuestionJson) ? openQuestionJson : [])
+      .map((value, index) => normalizeQuestionEntryInput(parseJsonFlag(value, "--open-question-json"), `open_question_entries[${index}]`)),
+    blocker_entries: (Array.isArray(blockerJson) ? blockerJson : [])
+      .map((value, index) => normalizeQuestionEntryInput(parseJsonFlag(value, "--blocker-json"), `blocker_entries[${index}]`)),
+    metric_watch: [...new Set((Array.isArray(metricWatch) ? metricWatch : []).map(normalizeOptionalString).filter(Boolean))],
+    active_plan_pointer: activePlanJson === undefined
+      ? null
+      : normalizeActivePlanPointerInput(parseJsonFlag(activePlanJson, "--active-plan-json"), "active_plan_pointer"),
+    plan_status: normalizeOptionalString(planStatus),
+    resume_condition: normalizeOptionalString(resumeCondition),
+    source_refs: (Array.isArray(sourceRefJson) ? sourceRefJson : [])
+      .map((value, index) => normalizeSourceRefInput(parseJsonFlag(value, "--source-ref-json"), `source_refs[${index}]`)),
+  };
+
+  normalized.recorded_fields = [
+    normalized.current_focus.length ? "current_focus" : "",
+    normalized.next_safe_themes.length ? "next_safe_themes" : "",
+    normalized.fallback_focus ? "fallback_focus" : "",
+    normalized.decision_entries.length ? "decision_entries" : "",
+    normalized.open_question_entries.length ? "open_question_entries" : "",
+    normalized.blocker_entries.length ? "blocker_entries" : "",
+    normalized.metric_watch.length ? "metric_watch" : "",
+    activePlanJson !== undefined ? "active_plan_pointer" : "",
+    normalized.plan_status ? "plan_status" : "",
+    normalized.resume_condition ? "resume_condition" : "",
+    normalized.source_refs.length ? "source_refs" : "",
+  ].filter(Boolean);
+
+  const artifactPaths = new Set(durableDeltaTouchedArtifacts(normalized));
+
+  normalized.baseline_context_hashes = artifactPaths.size
+    ? captureDurableDeltaBaseline(repoRoot, [...artifactPaths])
+    : {};
+
+  return normalized;
+}
+
+function contextPromotionPayload(state) {
+  return {
+    context_promotion_required: Boolean(state.context_promotion?.required),
+    context_promotion_state: String(state.context_promotion?.state || CONTEXT_PROMOTION_STATE_PENDING),
+    context_promotion_reason: String(state.context_promotion?.reason || "pending"),
+    context_promotion_next_action: String(state.context_promotion?.next_action || ""),
+    context_promotion_changed_artifacts: Array.isArray(state.context_promotion?.changed_artifacts)
+      ? state.context_promotion.changed_artifacts
+      : [],
+  };
 }
 
 function commitThemeWorktreeIfNeeded(repoRoot, state, execGit = runGit) {
@@ -257,6 +517,7 @@ export function statusTheme({
       aftercare_recorded: aftercareIsRecorded(state),
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
+      ...contextPromotionPayload(state),
       ...mergeGate,
     },
   });
@@ -281,6 +542,17 @@ export function setupTheme({
     } else {
       state.harness_policy_reason = "Legacy theme state without explicit harness policy metadata.";
     }
+  }
+
+  state.context_promotion.required = state.harness_policy === HARNESS_POLICY_DEFAULT;
+  if (!state.context_promotion.required) {
+    state.context_promotion.state = "noop";
+    state.context_promotion.reason = "not_required";
+    state.context_promotion.next_action = "This theme does not require durable-context auto-promotion.";
+  } else if (!state.context_promotion.state || state.context_promotion.state === "not_required") {
+    state.context_promotion.state = CONTEXT_PROMOTION_STATE_PENDING;
+    state.context_promotion.reason = "pending";
+    state.context_promotion.next_action = "Run `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` after `aftercare` and `explain` to evaluate auto-promotion.";
   }
 
   saveState(repoRoot, state);
@@ -350,6 +622,17 @@ export function recordExplain({
   opsChange = [],
   nextSteps = [],
   techNotes = [],
+  currentFocus = [],
+  nextSafeThemes = [],
+  decisionJson = [],
+  openQuestionJson = [],
+  blockerJson = [],
+  metricWatch = [],
+  activePlanJson = undefined,
+  planStatus = "",
+  resumeCondition = "",
+  fallbackFocusValues = [],
+  sourceRefJson = [],
 } = {}) {
   assertRootOwnedCwd(repoRoot, cwd, "node scripts/theme-ops.mjs explain --slug <slug> ...");
 
@@ -367,6 +650,37 @@ export function recordExplain({
   state.plain_language_summary.ops_change = [...new Set(opsChange)];
   state.plain_language_summary.next_steps = [...new Set(nextSteps)];
   state.plain_language_summary.tech_notes = [...new Set(techNotes)];
+  state.durable_delta = normalizeExplainDurableDelta({
+    repoRoot,
+    currentFocus,
+    nextSafeThemes,
+    decisionJson,
+    openQuestionJson,
+    blockerJson,
+    metricWatch,
+    activePlanJson,
+    planStatus,
+    resumeCondition,
+    fallbackFocusValues,
+    sourceRefJson,
+  });
+  const durableDeltaRecorded = Object.keys(state.durable_delta.baseline_context_hashes).length > 0;
+  state.context_promotion.required = state.harness_policy === HARNESS_POLICY_DEFAULT;
+  if (state.context_promotion.required) {
+    state.context_promotion.state = CONTEXT_PROMOTION_STATE_PENDING;
+    state.context_promotion.reason = durableDeltaRecorded
+      ? "recorded_structured_delta"
+      : "pending_no_structured_delta";
+    state.context_promotion.next_action = `Run \`node scripts/theme-harness.mjs scaffold-closeout --slug ${slug}\` to auto-promote durable context before closeout.`;
+    state.context_promotion.updated_at = nowIso();
+    state.context_promotion.changed_artifacts = [];
+  } else {
+    state.context_promotion.state = "noop";
+    state.context_promotion.reason = "not_required";
+    state.context_promotion.next_action = "This theme does not require durable-context auto-promotion.";
+    state.context_promotion.updated_at = nowIso();
+    state.context_promotion.changed_artifacts = [];
+  }
   state.harness.recent_decisions = [
     "Plain-language closeout summary was recorded.",
     ...state.harness.recent_decisions,
@@ -380,6 +694,9 @@ export function recordExplain({
       slug,
       recorded_at: state.plain_language_summary.recorded_at,
       one_line: state.plain_language_summary.one_line,
+      durable_delta_recorded: durableDeltaRecorded,
+      durable_delta_artifacts: Object.keys(state.durable_delta.baseline_context_hashes).sort(),
+      ...contextPromotionPayload(state),
     },
   });
 }
@@ -397,6 +714,7 @@ export function closeTheme({
   const guidance = determineGuidance(state);
   const mergeGate = mergeGatePayload(state);
   const ready = guidance.policy === HARNESS_POLICY_DEFAULT ? closeoutIsReady(state) : true;
+  const promotion = contextPromotionPayload(state);
 
   if (waitForMerge && mergePolicyUsesWaitPath(state.merge_policy)) {
     if (!mergeGate.merge_gate_ready) {
@@ -413,6 +731,7 @@ export function closeTheme({
           aftercare_recorded: aftercareIsRecorded(state),
           plain_language_summary_recorded: summaryIsRecorded(state),
           closeout_ready: closeoutIsReady(state),
+          ...promotion,
           ready,
           wait_for_merge: true,
           next_action: mergeGate.merge_gate_next_action,
@@ -435,6 +754,7 @@ export function closeTheme({
         aftercare_recorded: aftercareIsRecorded(state),
         plain_language_summary_recorded: summaryIsRecorded(state),
         closeout_ready: closeoutIsReady(state),
+        ...promotion,
         ready,
         wait_for_merge: true,
         merged: true,
@@ -446,7 +766,7 @@ export function closeTheme({
   }
 
   return actionPayload({
-    status: "pass",
+    status: ready ? "pass" : "action_required",
     message: ready ? "Local closeout readiness satisfied." : "Local closeout readiness is not satisfied yet.",
     details: {
       slug,
@@ -460,13 +780,16 @@ export function closeTheme({
       aftercare_recorded: aftercareIsRecorded(state),
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
+      ...promotion,
       ready,
       wait_for_merge: waitForMerge,
       next_action: waitForMerge && mergeGate.merge_gate_required
         ? mergeGate.merge_gate_next_action
         : ready
           ? "Use the repo's normal git closeout flow manually."
-          : guidance.next_action,
+          : CONTEXT_PROMOTION_SUCCESS_STATES.has(promotion.context_promotion_state)
+            ? guidance.next_action
+            : promotion.context_promotion_next_action || guidance.next_action,
       ...mergeGate,
     },
   });
@@ -561,6 +884,17 @@ function parseCommandLine() {
           "ops-change": { type: "string", multiple: true },
           "next-step": { type: "string", multiple: true },
           "tech-note": { type: "string", multiple: true },
+          "current-focus": { type: "string", multiple: true },
+          "next-safe-theme": { type: "string", multiple: true },
+          "decision-json": { type: "string", multiple: true },
+          "open-question-json": { type: "string", multiple: true },
+          "blocker-json": { type: "string", multiple: true },
+          "metric-watch": { type: "string", multiple: true },
+          "active-plan-json": { type: "string" },
+          "plan-status": { type: "string" },
+          "resume-condition": { type: "string" },
+          "fallback-focus": { type: "string", multiple: true },
+          "source-ref-json": { type: "string", multiple: true },
         },
       });
       return {
@@ -573,6 +907,17 @@ function parseCommandLine() {
           opsChange: values["ops-change"] || [],
           nextSteps: values["next-step"] || [],
           techNotes: values["tech-note"] || [],
+          currentFocus: values["current-focus"] || [],
+          nextSafeThemes: values["next-safe-theme"] || [],
+          decisionJson: values["decision-json"] || [],
+          openQuestionJson: values["open-question-json"] || [],
+          blockerJson: values["blocker-json"] || [],
+          metricWatch: values["metric-watch"] || [],
+          activePlanJson: values["active-plan-json"],
+          planStatus: values["plan-status"] || "",
+          resumeCondition: values["resume-condition"] || "",
+          fallbackFocusValues: values["fallback-focus"] || [],
+          sourceRefJson: values["source-ref-json"] || [],
         },
       };
     }

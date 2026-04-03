@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-04-04T00:00:00+09:00",
+  "updated_at": "2026-04-04T02:00:00+09:00",
   "owner": "docs/context/adapter.json",
   "status": "confirmed",
-  "review_at": "2026-04-11T00:00:00+09:00",
+  "review_at": "2026-04-11T02:00:00+09:00",
   "supersedes": [],
   "evidence_quality": "direct",
   "source_refs": [
@@ -10,42 +10,30 @@
       "kind": "markdown",
       "path_or_uri": "README.md",
       "locator": "Dependency Security",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "captured_at": "2026-04-04T02:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "docs/runbooks/durable-context-promotion.md",
+      "locator": "Auto Promotion Contract",
+      "captured_at": "2026-04-04T02:00:00+09:00"
     },
     {
       "kind": "markdown",
       "path_or_uri": "docs/runbooks/dependency-security.md",
-      "locator": "Baseline Controls; Repo Settings Checklist",
-      "captured_at": "2026-04-04T00:00:00+09:00"
-    },
-    {
-      "kind": "other",
-      "path_or_uri": ".github/dependabot.yml",
-      "locator": "updates",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "locator": "Baseline Controls",
+      "captured_at": "2026-04-04T02:00:00+09:00"
     },
     {
       "kind": "other",
       "path_or_uri": ".github/workflows/dependency-security.yml",
       "locator": "jobs.dependency-security",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "captured_at": "2026-04-04T02:00:00+09:00"
     }
   ],
-  "active_plan_pointer": {
-    "kind": "manual_follow_up",
-    "slug": "dependency-security-settings-activation",
-    "path": "docs/runbooks/dependency-security.md"
-  },
-  "plan_status": "pending_external",
-  "blocked_by": [
-    {
-      "id": "github-repo-security-settings-access",
-      "summary": "The repo-local dependency security baseline is in place, but GitHub repository security settings still require an admin-side confirmation or enablement pass when the implementer lacks valid repo-admin authentication.",
-      "observed_at": "2026-04-04T00:00:00+09:00",
-      "evidence_ref": "docs/runbooks/dependency-security.md#Repo Settings Checklist",
-      "last_verified_by": "dependency-security baseline verification and GitHub settings follow-up @ 2026-04-04T00:00:00+09:00"
-    }
-  ],
-  "resume_condition": "a repository admin confirms Dependency graph, Dependabot alerts, Dependabot security updates, and Dependabot malware alerts are enabled.",
-  "fallback_focus": "normal feature work with GitHub-centered dependency monitoring active in code and CI"
+  "active_plan_pointer": null,
+  "plan_status": "",
+  "blocked_by": [],
+  "resume_condition": "No blocked work is recorded right now.",
+  "fallback_focus": "normal feature work with GitHub-centered dependency monitoring and auto-promoted durable context"
 }

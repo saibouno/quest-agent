@@ -2,20 +2,20 @@
 
 ## Metadata
 
-- updated_at: `2026-04-04T00:00:00+09:00`
+- updated_at: `2026-04-04T02:00:00+09:00`
 - owner: `docs/context/adapter.json`
 - status: `confirmed`
-- review_at: `2026-04-11T00:00:00+09:00`
+- review_at: `2026-04-11T02:00:00+09:00`
 - supersedes: `none`
 - evidence_quality: `direct`
 - source_refs:
   - `AGENTS.md#Read Order`
-  - `README.md#Current flow`
   - `README.md#Dependency Security`
-  - `.github/dependabot.yml`
+  - `docs/runbooks/durable-context-promotion.md#Auto Promotion Contract`
+  - `docs/runbooks/dependency-security.md#Baseline Controls`
   - `.github/workflows/dependency-security.yml`
+  - `scripts/promote-durable-context.mjs#promoteDurableContext`
   - `scripts/dependency-guardrails.mjs`
-  - `docs/runbooks/dependency-security.md`
 
 ## Product Shape
 
@@ -25,22 +25,24 @@
 
 ## Current Focus
 
-- The repo now carries a GitHub-centered dependency security baseline alongside the existing durable-context and harness workflow.
+- The repo now pairs a GitHub-centered dependency security baseline with scaffold-closeout durable-context auto-promotion.
 - Dependency monitoring is expected to happen through GitHub repo settings, Dependabot update PRs, and the `Dependency Security` workflow rather than ad hoc local-only checks.
-- Install-script changes are now an explicit review surface through `scripts/dependency-guardrails.mjs` and `scripts/dependency-guardrails-allowlist.json`.
+- `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` now auto-promotes the smallest durable delta into `docs/context/*` before it records `closeout_ready`.
 
 ## Blocked Work
 
-- No repo-local code blocker remains for the dependency security baseline after verification moved through a non-nested main-based checkout.
-- The remaining completion dependency is repository-admin access to confirm `Dependency graph`, `Dependabot alerts`, `Dependabot security updates`, and `Dependabot malware alerts` in GitHub settings when the implementer cannot toggle them directly.
+- Active blocked plan: `none`
+- Blocker summary: none promoted right now.
+- Resume condition: No blocked work is recorded right now.
 
 ## Fallback Focus
 
 - Prefer normal feature and repo-hygiene work while GitHub continues to own dependency detection, notification, and update PR generation.
-- If GitHub settings cannot be changed in-thread, treat the repo settings checklist in `docs/runbooks/dependency-security.md` as the manual follow-up instead of weakening the code-side gate.
+- Keep using the repo-local harness closeout flow so canonical durable context stays aligned automatically.
 
 ## Recent Confirmed Decisions
 
+- `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` auto-promotes the smallest durable delta into `docs/context/*`, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
 - Windows-safe `:noprofile` verify/build spellings are the canonical command surface for this repo and should stay aligned across docs, harness state, and closeout.
 - Nested worktree tooling should resolve the canonical repo root through git common-dir first and prefer checkout-local `node_modules` before falling back to the canonical install.
 - Generated harness artifacts under `output/theme_ops/` remain scratch-only evidence, not canonical current-state owners.
@@ -51,5 +53,5 @@
 ## Next Safe Themes
 
 - Dependency maintenance work that clears the current moderate runtime Next.js advisory without widening the merge gate.
+- Durable-context and runbook follow-ups that stay within `docs/context/*`, harness docs, and related contract tests.
 - Normal product and repo-hygiene work that assumes `npm.cmd run security:verify:noprofile` is the local dependency-security baseline.
-- Future automation or reporting themes can build on the GitHub-native monitoring baseline instead of replacing it with a separate manual process.

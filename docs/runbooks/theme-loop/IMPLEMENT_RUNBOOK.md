@@ -33,9 +33,10 @@ Use this runbook when a theme should follow the minimal harness loop.
 8. `node scripts/theme-harness.mjs verify --slug <slug>`
 9. from the root repo checkout, run `node scripts/theme-ops.mjs aftercare --slug <slug> ...`
 10. from the root repo checkout, run `node scripts/theme-ops.mjs explain --slug <slug> ...`
-11. run the context promotion step: if the theme produced durable delta, update `docs/context/*` by following `docs/runbooks/durable-context-promotion.md` and `.agents/skills/context-promotion/SKILL.md`
-12. `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
-13. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug <slug>`
+11. `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
+   - This step auto-promotes the recorded durable delta through `scripts/promote-durable-context.mjs` before it records `closeout_ready`.
+   - Promotion behavior stays defined by `docs/runbooks/durable-context-promotion.md` and `.agents/skills/context-promotion/SKILL.md`.
+12. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug <slug>`
    - `merge_policy=manual` keeps the existing human merge checkpoint.
    - `merge_policy=auto_after_green` should use `node scripts/theme-ops.mjs close --slug <slug> --wait-for-merge` once the merge gate is ready.
 
@@ -55,7 +56,7 @@ Use this runbook when a theme should follow the minimal harness loop.
 - `approved` and `rejected` remain workflow states.
 - v1 does not let `theme-harness.mjs set-status` write them.
 - Treat them as human-only boundaries handled after closeout draft and before merge decisions.
-- Durable-context promotion remains a manual docs update in v1; the runbook and skill are the source of truth, not a dedicated harness subcommand.
+- `theme-ops.mjs explain` owns the structured durable delta, and `scaffold-closeout` owns the repo-local auto-promotion gate.
 
 ## Soft Default Boundary
 

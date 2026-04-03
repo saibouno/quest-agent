@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -23,6 +24,14 @@ export const MERGE_GATE_REASON_CLOSEOUT_MISSING = "closeout_missing";
 export const MERGE_GATE_REASON_KNOWN_ISSUES_MISSING = "known_issues_missing";
 export const MERGE_GATE_REASON_ROLLBACK_NOT_SIMPLE_REVERT = "rollback_not_simple_revert";
 export const MERGE_GATE_REASON_NOT_ROUTINE_ELIGIBLE = "not_routine_eligible";
+export const CONTEXT_PROMOTION_STATE_PENDING = "pending";
+export const CONTEXT_PROMOTION_STATE_NOOP = "noop";
+export const CONTEXT_PROMOTION_STATE_APPLIED = "applied";
+export const CONTEXT_PROMOTION_STATE_BLOCKED = "blocked";
+export const CONTEXT_PROMOTION_SUCCESS_STATES = new Set([
+  CONTEXT_PROMOTION_STATE_NOOP,
+  CONTEXT_PROMOTION_STATE_APPLIED,
+]);
 
 export const WORKFLOW_STATUSES = new Set([
   "plan_drafted",
@@ -221,6 +230,10 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
+export function hashContent(value) {
+  return createHash("sha256").update(String(value || ""), "utf8").digest("hex");
+}
+
 export function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });
 }
@@ -255,6 +268,10 @@ export function statusPathFor(repoRoot, slug) {
 
 export function closeoutPathFor(repoRoot, slug) {
   return artifactPath(repoRoot, slug, "closeout");
+}
+
+export function decisionArtifactPathForSlug(slug) {
+  return path.posix.join("docs", "context", "decisions", `${String(slug || "").trim()}.md`);
 }
 
 export function readText(filePath) {
@@ -307,6 +324,46 @@ export function initialPlainLanguageSummaryState() {
   };
 }
 
+export function initialDurableDeltaState() {
+  return {
+    current_focus: [],
+    next_safe_themes: [],
+    fallback_focus: "",
+    decision_entries: [],
+    open_question_entries: [],
+    blocker_entries: [],
+    metric_watch: [],
+    active_plan_pointer: null,
+    plan_status: "",
+    resume_condition: "",
+    source_refs: [],
+    recorded_fields: [],
+    baseline_context_hashes: {},
+  };
+}
+
+export function initialContextPromotionState(required = true) {
+  if (!required) {
+    return {
+      required: false,
+      state: CONTEXT_PROMOTION_STATE_NOOP,
+      reason: "not_required",
+      next_action: "This theme does not require durable-context auto-promotion.",
+      updated_at: "",
+      changed_artifacts: [],
+    };
+  }
+
+  return {
+    required: true,
+    state: CONTEXT_PROMOTION_STATE_PENDING,
+    reason: "pending",
+    next_action: "Run `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` after `aftercare` and `explain` to evaluate auto-promotion.",
+    updated_at: "",
+    changed_artifacts: [],
+  };
+}
+
 export function initialHarnessState(repoRoot, slug) {
   return {
     workflow_status: "",
@@ -326,6 +383,154 @@ export function initialHarnessState(repoRoot, slug) {
   };
 }
 
+export function ensureSourceRefs(values) {
+  return (Array.isArray(values) ? values : [])
+    .filter((value) => value && typeof value === "object")
+    .map((value) => ({
+      kind: String(value.kind || "other"),
+      path_or_uri: String(value.path_or_uri || ""),
+      locator: String(value.locator || ""),
+      captured_at: String(value.captured_at || ""),
+    }))
+    .filter((value) => value.path_or_uri);
+}
+
+function ensureDecisionEntries(values) {
+  return (Array.isArray(values) ? values : [])
+    .filter((value) => value && typeof value === "object")
+    .map((value) => ({
+      slug: String(value.slug || ""),
+      title: String(value.title || ""),
+      decision: String(value.decision || ""),
+      why_it_stands: String(value.why_it_stands || ""),
+      operational_consequence: String(value.operational_consequence || ""),
+      source_refs: ensureSourceRefs(value.source_refs),
+    }))
+    .filter((value) => value.slug);
+}
+
+function ensureQuestionEntries(values) {
+  return (Array.isArray(values) ? values : [])
+    .filter((value) => value && typeof value === "object")
+    .map((value) => ({
+      id: String(value.id || ""),
+      summary: String(value.summary || ""),
+      impact: String(value.impact || ""),
+      next_unlock: String(value.next_unlock || ""),
+      status: String(value.status || ""),
+      observed_at: String(value.observed_at || ""),
+      resolved_at: String(value.resolved_at || ""),
+      last_verified_by: String(value.last_verified_by || ""),
+      source_refs: ensureSourceRefs(value.source_refs),
+      evidence_ref: String(value.evidence_ref || ""),
+    }))
+    .filter((value) => value.id);
+}
+
+function ensureActivePlanPointer(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    kind: String(value.kind || ""),
+    slug: String(value.slug || ""),
+    path: String(value.path || ""),
+  };
+}
+
+export function ensureDurableDeltaShape(value) {
+  const durableDelta = value && typeof value === "object" ? value : {};
+  const baselineHashes = durableDelta.baseline_context_hashes && typeof durableDelta.baseline_context_hashes === "object"
+    ? durableDelta.baseline_context_hashes
+    : {};
+
+  return {
+    ...initialDurableDeltaState(),
+    current_focus: ensureTextEntries(durableDelta.current_focus),
+    next_safe_themes: ensureTextEntries(durableDelta.next_safe_themes),
+    fallback_focus: String(durableDelta.fallback_focus || ""),
+    decision_entries: ensureDecisionEntries(durableDelta.decision_entries),
+    open_question_entries: ensureQuestionEntries(durableDelta.open_question_entries),
+    blocker_entries: ensureQuestionEntries(durableDelta.blocker_entries),
+    metric_watch: ensureTextEntries(durableDelta.metric_watch),
+    active_plan_pointer: ensureActivePlanPointer(durableDelta.active_plan_pointer),
+    plan_status: String(durableDelta.plan_status || ""),
+    resume_condition: String(durableDelta.resume_condition || ""),
+    source_refs: ensureSourceRefs(durableDelta.source_refs),
+    recorded_fields: ensureTextEntries(durableDelta.recorded_fields),
+    baseline_context_hashes: Object.fromEntries(
+      Object.entries(baselineHashes)
+        .map(([artifactPath, hash]) => [String(artifactPath || ""), String(hash || "")])
+        .filter(([artifactPath]) => artifactPath),
+    ),
+  };
+}
+
+export function ensureContextPromotionShape(value, { required = true } = {}) {
+  const contextPromotion = value && typeof value === "object" ? value : {};
+  const fallback = initialContextPromotionState(required);
+
+  return {
+    required: typeof contextPromotion.required === "boolean" ? contextPromotion.required : fallback.required,
+    state: String(contextPromotion.state || fallback.state),
+    reason: String(contextPromotion.reason || fallback.reason),
+    next_action: String(contextPromotion.next_action || fallback.next_action),
+    updated_at: String(contextPromotion.updated_at || ""),
+    changed_artifacts: ensureTextEntries(contextPromotion.changed_artifacts),
+  };
+}
+
+export function durableDeltaTouchedArtifacts(durableDelta) {
+  const normalized = ensureDurableDeltaShape(durableDelta);
+  const touched = new Set();
+  const recorded = new Set(normalized.recorded_fields);
+
+  if (
+    normalized.current_focus.length
+    || normalized.next_safe_themes.length
+    || normalized.fallback_focus
+    || normalized.decision_entries.length
+    || normalized.active_plan_pointer
+    || normalized.plan_status
+    || normalized.resume_condition
+    || normalized.blocker_entries.length
+    || recorded.has("active_plan_pointer")
+  ) {
+    touched.add("docs/context/current-state.md");
+  }
+
+  if (
+    normalized.active_plan_pointer
+    || normalized.plan_status
+    || normalized.blocker_entries.length
+    || normalized.resume_condition
+    || normalized.fallback_focus
+    || normalized.source_refs.length
+    || recorded.has("active_plan_pointer")
+  ) {
+    touched.add("docs/context/current-state.meta.json");
+  }
+
+  if (normalized.open_question_entries.length || normalized.blocker_entries.length) {
+    touched.add("docs/context/open-questions.md");
+  }
+
+  if (normalized.metric_watch.length) {
+    touched.add("docs/context/metrics-source.md");
+  }
+
+  for (const entry of normalized.decision_entries) {
+    touched.add(decisionArtifactPathForSlug(entry.slug));
+  }
+
+  return [...touched].sort();
+}
+
+export function durableDeltaHasStructuredContent(durableDelta) {
+  return durableDeltaTouchedArtifacts(durableDelta).length > 0;
+}
+
 export function createInitialState({
   repoRoot,
   themeName,
@@ -342,6 +547,7 @@ export function createInitialState({
   rollbackClass = ROLLBACK_CLASS_MANUAL,
 }) {
   const normalizedPolicy = harnessPolicy || HARNESS_POLICY_DEFAULT;
+  const contextPromotionRequired = normalizedPolicy === HARNESS_POLICY_DEFAULT;
 
   return ensureStateShape(
     {
@@ -364,6 +570,8 @@ export function createInitialState({
       updated_at: nowIso(),
       aftercare: initialAftercareState(),
       plain_language_summary: initialPlainLanguageSummaryState(),
+      durable_delta: initialDurableDeltaState(),
+      context_promotion: initialContextPromotionState(contextPromotionRequired),
       harness: initialHarnessState(repoRoot, slug),
     },
     { repoRoot, slug },
@@ -385,6 +593,11 @@ export function ensureStateShape(state, { repoRoot, slug }) {
   const summary = state.plain_language_summary && typeof state.plain_language_summary === "object"
     ? { ...state.plain_language_summary }
     : {};
+  const durableDelta = state.durable_delta && typeof state.durable_delta === "object" ? { ...state.durable_delta } : {};
+  const contextPromotion = state.context_promotion && typeof state.context_promotion === "object"
+    ? { ...state.context_promotion }
+    : {};
+  const contextPromotionRequired = resolvedPolicy === HARNESS_POLICY_DEFAULT;
 
   return {
     schema_version: Number(state.schema_version || SCHEMA_VERSION),
@@ -419,6 +632,10 @@ export function ensureStateShape(state, { repoRoot, slug }) {
       next_steps: ensureTextEntries(summary.next_steps),
       tech_notes: ensureTextEntries(summary.tech_notes),
     },
+    durable_delta: ensureDurableDeltaShape(durableDelta),
+    context_promotion: ensureContextPromotionShape(contextPromotion, {
+      required: contextPromotionRequired,
+    }),
     harness: {
       ...initialHarnessState(resolvedRepoRoot, resolvedSlug),
       ...harness,
@@ -813,7 +1030,7 @@ export function determineGuidance(state) {
     plan_reviewed: `Run \`node scripts/theme-harness.mjs set-status --slug ${state.slug} --to implementing\`.`,
     implementing: "Finish implementation and then run `node scripts/theme-harness.mjs verify --slug <slug>`.",
     blocked: "Resolve the blocker and then return to `implementing` with `set-status` or rerun `verify`.",
-    verified: `Run \`node scripts/theme-ops.mjs aftercare --slug ${state.slug} ...\`, \`node scripts/theme-ops.mjs explain --slug ${state.slug} ...\`, and then \`node scripts/theme-harness.mjs scaffold-closeout --slug ${state.slug}\`.`,
+    verified: `Run \`node scripts/theme-ops.mjs aftercare --slug ${state.slug} ...\`, \`node scripts/theme-ops.mjs explain --slug ${state.slug} ...\`, and then \`node scripts/theme-harness.mjs scaffold-closeout --slug ${state.slug}\` to auto-promote durable context before closeout.`,
     closeout_ready: mergePolicyUsesWaitPath(state.merge_policy)
       ? `Run \`node scripts/theme-ops.mjs close --slug ${state.slug} --wait-for-merge\` from the repo root.`
       : `Run \`node scripts/theme-ops.mjs close --slug ${state.slug}\` from the repo root.`,
@@ -835,8 +1052,18 @@ export function aftercareIsRecorded(state) {
   return Boolean(state.aftercare.checked_at);
 }
 
+export function contextPromotionIsSatisfied(state) {
+  if (!state.context_promotion?.required) {
+    return true;
+  }
+
+  return CONTEXT_PROMOTION_SUCCESS_STATES.has(String(state.context_promotion?.state || ""));
+}
+
 export function closeoutIsReady(state) {
-  return String(state.harness.workflow_status || "") === "closeout_ready" && existsSync(state.harness.closeout_path);
+  return String(state.harness.workflow_status || "") === "closeout_ready"
+    && existsSync(state.harness.closeout_path)
+    && contextPromotionIsSatisfied(state);
 }
 
 export function briefIsConfirmed(state) {
