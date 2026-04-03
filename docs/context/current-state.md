@@ -2,17 +2,19 @@
 
 ## Metadata
 
-- updated_at: `2026-04-02T00:00:00+09:00`
+- updated_at: `2026-04-04T00:00:00+09:00`
 - owner: `docs/context/adapter.json`
 - status: `confirmed`
-- review_at: `2026-04-09T00:00:00+09:00`
+- review_at: `2026-04-11T00:00:00+09:00`
 - supersedes: `none`
 - evidence_quality: `mixed`
 - source_refs:
   - `AGENTS.md#Read Order`
   - `README.md#Current flow`
-  - `output/theme_ops/quest-agent-local-verification-doc-alignment-v1.json`
-  - `output/theme_ops/quest-agent-nested-worktree-build-followup-v1.json`
+  - `docs/runbooks/durable-context-promotion.md#Auto Promotion Contract`
+  - `scripts/theme-ops.mjs#recordExplain,statusTheme,closeTheme`
+  - `scripts/theme-harness.mjs#scaffoldCloseout`
+  - `scripts/promote-durable-context.mjs#promoteDurableContext`
   - `output/theme_ops/quest-agent-security-baseline.json`
 
 ## Product Shape
@@ -23,9 +25,9 @@
 
 ## Current Focus
 
-- The active repo focus is durable-context, docs, and harness hygiene around a blocked security hardening lane.
-- This theme establishes a canonical `docs/context/*` surface so future threads can recover the repo's operating state without digging through old thread history.
-- Closeout guidance now needs to update canonical durable context before scaffolded closeout, but the promotion step remains docs-and-skill driven in v1.
+- The active repo focus is durable-context, harness closeout automation, and docs alignment around a blocked security hardening lane.
+- `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` now auto-promotes the smallest durable delta into `docs/context/*` before it records `closeout_ready`.
+- `node scripts/theme-ops.mjs explain --slug <slug> ...` now owns the repo-local structured durable delta, including stale-target hashes for canonical promotion writes.
 
 ## Blocked Work
 
@@ -40,6 +42,8 @@
 
 ## Recent Confirmed Decisions
 
+- `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` auto-promotes the smallest durable delta into `docs/context/*`, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
+- Scaffolded closeout is now the repo-local owner of durable-context auto-promotion, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
 - Windows-safe `:noprofile` verify/build spellings are the canonical command surface for this repo and should stay aligned across docs, harness state, and closeout.
 - Nested worktree tooling should resolve the canonical repo root through git common-dir first and prefer checkout-local `node_modules` before falling back to the canonical install.
 - Generated harness artifacts under `output/theme_ops/` remain scratch-only evidence, not canonical current-state owners.
@@ -48,4 +52,4 @@
 
 - Durable-context and runbook follow-ups that stay within `docs/context/*`, harness docs, and related contract tests.
 - Non-blocked repo hygiene themes that improve verification clarity, documentation fidelity, or scratch-artifact diagnostics without changing app runtime behavior.
-- Future investigation of whether durable-context promotion needs automation can happen later, but v1 should keep the promotion step manual and lightweight.
+- Follow-up work can refine the structured durable delta shape and manual-only boundaries, but v1 should keep `Product Shape` edits explicit and outside auto-promotion.

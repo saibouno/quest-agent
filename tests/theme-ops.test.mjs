@@ -25,6 +25,13 @@ function seedRunbookFiles(repoRoot) {
     "docs/runbooks/theme-loop/PLAN_TEMPLATE.md",
     "docs/runbooks/theme-loop/STATUS_TEMPLATE.md",
     "docs/runbooks/theme-loop/CLOSEOUT_TEMPLATE.md",
+    "docs/context/adapter.json",
+    "docs/context/current-state.md",
+    "docs/context/current-state.meta.json",
+    "docs/context/open-questions.md",
+    "docs/context/metrics-source.md",
+    "docs/context/decisions/nested-worktree-root-and-tooling-resolution.md",
+    "docs/context/decisions/windows-safe-noprofile-spellings.md",
   ];
 
   for (const relativePath of targets) {
@@ -276,6 +283,164 @@ test("aftercare, explain, and close return remediation from the wrong cwd", (t) 
   );
 });
 
+test("explain stores normalized durable delta and context promotion baseline", (t) => {
+  const repoRoot = createFixtureRepo(t, "explain-durable");
+  const slug = "explain-durable";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Explain Durable Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  const result = recordExplain({
+    repoRoot,
+    cwd: repoRoot,
+    slug,
+    oneLine: "Durable context changed.",
+    currentFocus: ["Auto-promote closeout context.", "Auto-promote closeout context."],
+    nextSafeThemes: ["docs-followup"],
+    decisionJson: [JSON.stringify({
+      slug: "auto-context-closeout",
+      title: "Auto Context Closeout",
+      decision: "Scaffold closeout auto-promotes durable context before becoming ready.",
+      why_it_stands: "It keeps closeout readiness aligned with canonical docs/context state.",
+      operational_consequence: "Explain must record durable input before scaffold-closeout can finish.",
+      source_refs: [{
+        kind: "json",
+        path_or_uri: "output/theme_ops/explain-durable.json",
+        locator: "durable_delta",
+        captured_at: "2026-04-04T00:00:00+09:00",
+      }],
+    })],
+    openQuestionJson: [JSON.stringify({
+      id: "closeout-auto-promotion-followup",
+      summary: "Confirm whether Product Shape should stay manual-only.",
+      impact: "Future automation scope depends on this boundary.",
+      next_unlock: "Review the durable-context promotion contract after v1 lands.",
+      status: "open",
+    })],
+    blockerJson: [JSON.stringify({
+      id: "closeout-promotion-blocker",
+      summary: "Promotion must run before closeout_ready is recorded.",
+      impact: "Closeout cannot finish until promotion state is applied or noop.",
+      next_unlock: "Run scaffold-closeout after explain records the durable delta.",
+      status: "open",
+      observed_at: "2026-04-04T00:00:00+09:00",
+      evidence_ref: "output/theme_ops/explain-durable.json#durable_delta",
+    })],
+    metricWatch: ["Watch the durable-context freshness window."],
+    activePlanJson: JSON.stringify({
+      kind: "theme_state",
+      slug: "explain-durable",
+      path: "output/theme_ops/explain-durable.json",
+    }),
+    planStatus: "blocked",
+    resumeCondition: "Rerun scaffold-closeout after promotion finishes.",
+    fallbackFocusValues: ["docs/context hygiene"],
+    sourceRefJson: [JSON.stringify({
+      kind: "markdown",
+      path_or_uri: "output/theme_ops/explain-durable-closeout.md",
+      locator: "Summary",
+      captured_at: "2026-04-04T00:00:00+09:00",
+    })],
+  });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.durable_delta_recorded, true);
+  assert.ok(result.durable_delta_artifacts.includes("docs/context/current-state.md"));
+  assert.ok(result.durable_delta_artifacts.includes("docs/context/current-state.meta.json"));
+  assert.equal(result.context_promotion_state, "pending");
+
+  const state = loadState(repoRoot, slug);
+  assert.deepEqual(state.durable_delta.current_focus, ["Auto-promote closeout context."]);
+  assert.deepEqual(state.durable_delta.next_safe_themes, ["docs-followup"]);
+  assert.equal(state.durable_delta.fallback_focus, "docs/context hygiene");
+  assert.equal(state.durable_delta.decision_entries.length, 1);
+  assert.equal(state.durable_delta.open_question_entries.length, 1);
+  assert.equal(state.durable_delta.blocker_entries.length, 1);
+  assert.equal(state.durable_delta.metric_watch.length, 1);
+  assert.equal(state.context_promotion.state, "pending");
+  assert.ok(Object.keys(state.durable_delta.baseline_context_hashes).includes("docs/context/current-state.md"));
+});
+
+test("explain rejects malformed structured durable input", (t) => {
+  const repoRoot = createFixtureRepo(t, "explain-malformed");
+  const slug = "explain-malformed";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Explain Malformed Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  assert.throws(
+    () => recordExplain({
+      repoRoot,
+      cwd: repoRoot,
+      slug,
+      oneLine: "Malformed durable input.",
+      decisionJson: ["{"],
+    }),
+    /Malformed --decision-json/,
+  );
+});
+
+test("explain keeps fallback focus single-value", (t) => {
+  const repoRoot = createFixtureRepo(t, "explain-fallback");
+  const slug = "explain-fallback";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Explain Fallback Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  assert.throws(
+    () => recordExplain({
+      repoRoot,
+      cwd: repoRoot,
+      slug,
+      oneLine: "Too many fallback focus values.",
+      fallbackFocusValues: ["one", "two"],
+    }),
+    /--fallback-focus/,
+  );
+});
+
+test("close reports action_required while context promotion is pending", (t) => {
+  const repoRoot = createFixtureRepo(t, "close-pending");
+  const slug = "close-pending";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Close Pending Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  const rawStatePath = path.join(repoRoot, "output", "theme_ops", `${slug}.json`);
+  const rawState = JSON.parse(readFileSync(rawStatePath, "utf8"));
+  rawState.harness.workflow_status = "closeout_ready";
+  rawState.context_promotion.state = "pending";
+  rawState.context_promotion.reason = "recorded_structured_delta";
+  rawState.context_promotion.next_action = "Run scaffold-closeout again.";
+  writeFileSync(rawStatePath, `${JSON.stringify(rawState, null, 2)}\n`, "utf8");
+
+  const result = closeTheme({
+    repoRoot,
+    cwd: repoRoot,
+    slug,
+  });
+
+  assert.equal(result.status, "action_required");
+  assert.equal(result.context_promotion_state, "pending");
+  assert.equal(result.ready, false);
+});
+
 test("close --wait-for-merge merges and cleans up an eligible routine theme locally", (t) => {
   const repoRoot = createFixtureRepo(t, "auto-close");
   const slug = "auto-close";
@@ -310,6 +475,9 @@ test("close --wait-for-merge merges and cleans up an eligible routine theme loca
   const rawState = JSON.parse(readFileSync(rawStatePath, "utf8"));
   rawState.harness.workflow_status = "closeout_ready";
   rawState.harness.review_results = { result: "pass" };
+  rawState.context_promotion.state = "noop";
+  rawState.context_promotion.reason = "no_durable_delta";
+  rawState.context_promotion.next_action = "Ready to close.";
   rawState.harness.validation_runs = [
     {
       command: "node -e \"process.exit(0)\"",
