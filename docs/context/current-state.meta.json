@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-04-04T00:00:00+09:00",
+  "updated_at": "2026-04-04T02:25:17+09:00",
   "owner": "docs/context/adapter.json",
   "status": "confirmed",
-  "review_at": "2026-04-11T00:00:00+09:00",
+  "review_at": "2026-04-11T02:25:17+09:00",
   "supersedes": [],
   "evidence_quality": "mixed",
   "source_refs": [
@@ -35,14 +35,32 @@
       "path_or_uri": "scripts/promote-durable-context.mjs",
       "locator": "promoteDurableContext",
       "captured_at": "2026-04-04T00:00:00+09:00"
+    },
+    {
+      "kind": "json",
+      "path_or_uri": "output/theme_ops/quest-agent-security-remediation-v1.json",
+      "locator": "plain_language_summary/durable_delta",
+      "captured_at": "2026-04-04T00:00:00+09:00"
+    },
+    {
+      "kind": "json",
+      "path_or_uri": "package.json",
+      "locator": "dependencies/devDependencies/overrides",
+      "captured_at": "2026-04-04T00:00:00+09:00"
+    },
+    {
+      "kind": "json",
+      "path_or_uri": "package-lock.json",
+      "locator": "packages",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     }
   ],
   "active_plan_pointer": {
     "kind": "theme_state",
-    "slug": "quest-agent-security-baseline",
-    "path": "output/theme_ops/quest-agent-security-baseline.json"
+    "slug": "quest-agent-security-remediation-v1",
+    "path": "output/theme_ops/quest-agent-security-remediation-v1.json"
   },
-  "plan_status": "blocked",
+  "plan_status": "closeout_ready",
   "blocked_by": [
     {
       "id": "nested-worktree-prerender-invariant",
@@ -52,6 +70,6 @@
       "last_verified_by": "quest-agent-security-baseline / npm.cmd run build:noprofile @ 2026-04-01T07:04:04.173Z"
     }
   ],
-  "resume_condition": "the nested worktree build blocker is resolved or the verification lane is redefined onto a non-nested checkout path.",
-  "fallback_focus": "durable-context/docs/non-blocked hygiene themes"
+  "resume_condition": "Manual merge remains the only remaining checkpoint for the root-checkout remediation theme.",
+  "fallback_focus": "Dependency-only security follow-ups and harness verification hygiene that stay outside app runtime changes."
 }
