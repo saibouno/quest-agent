@@ -1,0 +1,40 @@
+name: Dependency Security
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  dependency-security:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install from lockfile
+        run: npm.cmd ci
+
+      - name: Review install-script allowlist
+        run: npm.cmd run deps:guardrails:noprofile
+
+      - name: Run repo verification
+        run: npm.cmd run verify:noprofile
+
+      - name: Build application
+        run: npm.cmd run build:noprofile
+
+      - name: Audit runtime dependencies
+        run: npm.cmd audit --omit=dev --audit-level=high

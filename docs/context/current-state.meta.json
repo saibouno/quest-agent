@@ -1,51 +1,51 @@
 {
-  "updated_at": "2026-04-02T00:00:00+09:00",
+  "updated_at": "2026-04-04T00:00:00+09:00",
   "owner": "docs/context/adapter.json",
   "status": "confirmed",
-  "review_at": "2026-04-09T00:00:00+09:00",
+  "review_at": "2026-04-11T00:00:00+09:00",
   "supersedes": [],
-  "evidence_quality": "mixed",
+  "evidence_quality": "direct",
   "source_refs": [
     {
       "kind": "markdown",
       "path_or_uri": "README.md",
-      "locator": "Current flow",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "locator": "Dependency Security",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     },
     {
       "kind": "markdown",
-      "path_or_uri": "AGENTS.md",
-      "locator": "Repo Rules; Verification Commands",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "path_or_uri": "docs/runbooks/dependency-security.md",
+      "locator": "Baseline Controls; Repo Settings Checklist",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     },
     {
-      "kind": "json",
-      "path_or_uri": "output/theme_ops/quest-agent-security-baseline.json",
-      "locator": "aftercare; harness.validation_runs",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "kind": "other",
+      "path_or_uri": ".github/dependabot.yml",
+      "locator": "updates",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     },
     {
-      "kind": "json",
-      "path_or_uri": "output/theme_ops/quest-agent-nested-worktree-build-followup-v1.json",
-      "locator": "plain_language_summary; harness.validation_runs",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "kind": "other",
+      "path_or_uri": ".github/workflows/dependency-security.yml",
+      "locator": "jobs.dependency-security",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     }
   ],
   "active_plan_pointer": {
-    "kind": "theme_state",
-    "slug": "quest-agent-security-baseline",
-    "path": "output/theme_ops/quest-agent-security-baseline.json"
+    "kind": "manual_follow_up",
+    "slug": "dependency-security-settings-activation",
+    "path": "docs/runbooks/dependency-security.md"
   },
-  "plan_status": "blocked",
+  "plan_status": "pending_external",
   "blocked_by": [
     {
-      "id": "nested-worktree-prerender-invariant",
-      "summary": "as of 2026-04-01, `quest-agent-security-baseline` remained blocked by the Next.js `/_not-found` prerender invariant in its nested worktree build.",
-      "observed_at": "2026-04-01T07:04:04.173Z",
-      "evidence_ref": "output/theme_ops/quest-agent-security-baseline.json#validation_runs[build:noprofile@2026-04-01T07:04:04.173Z]",
-      "last_verified_by": "quest-agent-security-baseline / npm.cmd run build:noprofile @ 2026-04-01T07:04:04.173Z"
+      "id": "github-repo-security-settings-access",
+      "summary": "The repo-local dependency security baseline is in place, but GitHub repository security settings still require an admin-side confirmation or enablement pass when the implementer lacks valid repo-admin authentication.",
+      "observed_at": "2026-04-04T00:00:00+09:00",
+      "evidence_ref": "docs/runbooks/dependency-security.md#Repo Settings Checklist",
+      "last_verified_by": "dependency-security baseline verification and GitHub settings follow-up @ 2026-04-04T00:00:00+09:00"
     }
   ],
-  "resume_condition": "the nested worktree build blocker is resolved or the verification lane is redefined onto a non-nested checkout path.",
-  "fallback_focus": "durable-context/docs/non-blocked hygiene themes"
+  "resume_condition": "a repository admin confirms Dependency graph, Dependabot alerts, Dependabot security updates, and Dependabot malware alerts are enabled.",
+  "fallback_focus": "normal feature work with GitHub-centered dependency monitoring active in code and CI"
 }

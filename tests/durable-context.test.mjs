@@ -54,7 +54,7 @@ test("current-state artifacts expose required sections and restart metadata", ()
   ]) {
     assert.match(currentState, new RegExp(`^${escapeRegExp(heading)}$`, "m"));
   }
-  assert.match(currentState, /`quest-agent-security-baseline`/);
+  assert.match(currentState, /GitHub-centered dependency security baseline/);
 
   const meta = JSON.parse(readRepoFile("docs/context/current-state.meta.json"));
   for (const key of [
@@ -75,29 +75,29 @@ test("current-state artifacts expose required sections and restart metadata", ()
   }
 
   assert.deepEqual(meta.active_plan_pointer, {
-    kind: "theme_state",
-    slug: "quest-agent-security-baseline",
-    path: "output/theme_ops/quest-agent-security-baseline.json",
+    kind: "manual_follow_up",
+    slug: "dependency-security-settings-activation",
+    path: "docs/runbooks/dependency-security.md",
   });
-  assert.equal(meta.plan_status, "blocked");
+  assert.equal(meta.plan_status, "pending_external");
   assert.equal(meta.blocked_by.length, 1);
   assert.equal(
     meta.blocked_by[0].summary,
-    "as of 2026-04-01, `quest-agent-security-baseline` remained blocked by the Next.js `/_not-found` prerender invariant in its nested worktree build.",
+    "The repo-local dependency security baseline is in place, but GitHub repository security settings still require an admin-side confirmation or enablement pass when the implementer lacks valid repo-admin authentication.",
   );
   assert.equal(
     meta.resume_condition,
-    "the nested worktree build blocker is resolved or the verification lane is redefined onto a non-nested checkout path.",
+    "a repository admin confirms Dependency graph, Dependabot alerts, Dependabot security updates, and Dependabot malware alerts are enabled.",
   );
-  assert.equal(meta.fallback_focus, "durable-context/docs/non-blocked hygiene themes");
+  assert.equal(meta.fallback_focus, "normal feature work with GitHub-centered dependency monitoring active in code and CI");
 });
 
 test("open questions and decisions keep required freshness and note structure", () => {
   const openQuestions = readRepoFile("docs/context/open-questions.md");
   assert.match(openQuestions, /^## Open Questions$/m);
   assert.match(openQuestions, /^## Blockers$/m);
-  assert.match(openQuestions, /- id: `nested-worktree-prerender-invariant`/);
-  assert.match(openQuestions, /- observed_at: `2026-04-01T07:04:04.173Z`/);
+  assert.match(openQuestions, /- id: `github-repo-security-settings-access`/);
+  assert.match(openQuestions, /- observed_at: `2026-04-04T00:00:00\+09:00`/);
   assert.match(openQuestions, /- impact: /);
   assert.match(openQuestions, /- next unlock: /);
   assert.match(openQuestions, /- (last_verified_by|evidence_ref): /);

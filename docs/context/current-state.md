@@ -2,18 +2,20 @@
 
 ## Metadata
 
-- updated_at: `2026-04-02T00:00:00+09:00`
+- updated_at: `2026-04-04T00:00:00+09:00`
 - owner: `docs/context/adapter.json`
 - status: `confirmed`
-- review_at: `2026-04-09T00:00:00+09:00`
+- review_at: `2026-04-11T00:00:00+09:00`
 - supersedes: `none`
-- evidence_quality: `mixed`
+- evidence_quality: `direct`
 - source_refs:
   - `AGENTS.md#Read Order`
   - `README.md#Current flow`
-  - `output/theme_ops/quest-agent-local-verification-doc-alignment-v1.json`
-  - `output/theme_ops/quest-agent-nested-worktree-build-followup-v1.json`
-  - `output/theme_ops/quest-agent-security-baseline.json`
+  - `README.md#Dependency Security`
+  - `.github/dependabot.yml`
+  - `.github/workflows/dependency-security.yml`
+  - `scripts/dependency-guardrails.mjs`
+  - `docs/runbooks/dependency-security.md`
 
 ## Product Shape
 
@@ -23,29 +25,31 @@
 
 ## Current Focus
 
-- The active repo focus is durable-context, docs, and harness hygiene around a blocked security hardening lane.
-- This theme establishes a canonical `docs/context/*` surface so future threads can recover the repo's operating state without digging through old thread history.
-- Closeout guidance now needs to update canonical durable context before scaffolded closeout, but the promotion step remains docs-and-skill driven in v1.
+- The repo now carries a GitHub-centered dependency security baseline alongside the existing durable-context and harness workflow.
+- Dependency monitoring is expected to happen through GitHub repo settings, Dependabot update PRs, and the `Dependency Security` workflow rather than ad hoc local-only checks.
+- Install-script changes are now an explicit review surface through `scripts/dependency-guardrails.mjs` and `scripts/dependency-guardrails-allowlist.json`.
 
 ## Blocked Work
 
-- Active blocked plan: `quest-agent-security-baseline`
-- Blocker summary: as of 2026-04-01, `quest-agent-security-baseline` remained blocked by the Next.js `/_not-found` prerender invariant in its nested worktree build.
-- Resume condition: the nested worktree build blocker is resolved or the verification lane is redefined onto a non-nested checkout path.
+- No repo-local code blocker remains for the dependency security baseline after verification moved through a non-nested main-based checkout.
+- The remaining completion dependency is repository-admin access to confirm `Dependency graph`, `Dependabot alerts`, `Dependabot security updates`, and `Dependabot malware alerts` in GitHub settings when the implementer cannot toggle them directly.
 
 ## Fallback Focus
 
-- Prefer durable-context, docs, and non-blocked repo hygiene themes while the active security lane stays blocked.
-- Keep app runtime, Supabase schema/data, and planning-host queue changes out of the fallback lane unless a separate theme explicitly reopens them.
+- Prefer normal feature and repo-hygiene work while GitHub continues to own dependency detection, notification, and update PR generation.
+- If GitHub settings cannot be changed in-thread, treat the repo settings checklist in `docs/runbooks/dependency-security.md` as the manual follow-up instead of weakening the code-side gate.
 
 ## Recent Confirmed Decisions
 
 - Windows-safe `:noprofile` verify/build spellings are the canonical command surface for this repo and should stay aligned across docs, harness state, and closeout.
 - Nested worktree tooling should resolve the canonical repo root through git common-dir first and prefer checkout-local `node_modules` before falling back to the canonical install.
 - Generated harness artifacts under `output/theme_ops/` remain scratch-only evidence, not canonical current-state owners.
+- Dependency security stays GitHub-centered for this repo: repo settings provide detection coverage, Dependabot owns recurring update PRs, and humans still review and merge.
+- The merge gate for dependency risk stays scoped to runtime `high` and `critical` audit findings so dev-only churn does not permanently jam `main`.
+- Any new or changed install-script package requires an allowlist update with a reason in the same PR before it can land.
 
 ## Next Safe Themes
 
-- Durable-context and runbook follow-ups that stay within `docs/context/*`, harness docs, and related contract tests.
-- Non-blocked repo hygiene themes that improve verification clarity, documentation fidelity, or scratch-artifact diagnostics without changing app runtime behavior.
-- Future investigation of whether durable-context promotion needs automation can happen later, but v1 should keep the promotion step manual and lightweight.
+- Dependency maintenance work that clears the current moderate runtime Next.js advisory without widening the merge gate.
+- Normal product and repo-hygiene work that assumes `npm.cmd run security:verify:noprofile` is the local dependency-security baseline.
+- Future automation or reporting themes can build on the GitHub-native monitoring baseline instead of replacing it with a separate manual process.
