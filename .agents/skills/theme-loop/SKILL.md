@@ -27,7 +27,7 @@ This is the canonical skill for the minimal harnessed theme loop in `quest-agent
 - Move the harness state into `implementing` only after the plan is reviewed.
 - Run saved verification commands through `node scripts/theme-harness.mjs verify`.
 - Record `node scripts/theme-ops.mjs aftercare` and `node scripts/theme-ops.mjs explain`.
-- Apply durable-context promotion when there is a durable delta before scaffolded closeout.
+- Let `node scripts/theme-harness.mjs scaffold-closeout` auto-promote durable context when there is a recorded delta.
 - Use `CLOSEOUT_TEMPLATE.md` to scaffold the closeout draft before `node scripts/theme-ops.mjs close`.
 
 ## Command Owners
@@ -59,16 +59,17 @@ This is the canonical skill for the minimal harnessed theme loop in `quest-agent
 7. `node scripts/theme-harness.mjs verify --slug "<slug>"`
 8. from the root repo checkout, run `node scripts/theme-ops.mjs aftercare --slug "<slug>" ...`
 9. from the root repo checkout, run `node scripts/theme-ops.mjs explain --slug "<slug>" ...`
-10. run the context promotion step: if the theme produced durable delta, update `docs/context/*` by following `docs/runbooks/durable-context-promotion.md` and `.agents/skills/context-promotion/SKILL.md`
-11. `node scripts/theme-harness.mjs scaffold-closeout --slug "<slug>"`
-12. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug "<slug>"`
+10. `node scripts/theme-harness.mjs scaffold-closeout --slug "<slug>"`
+   - This step auto-promotes the recorded durable delta through `scripts/promote-durable-context.mjs` before it records `closeout_ready`.
+11. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug "<slug>"`
    - Use `--wait-for-merge` when `merge_policy=auto_after_green` and the merge gate is ready.
 
 ## Repo Reality
 
 - `theme-ops.mjs` also owns the routine-lane `merge_gate_*` payload and the eligible local `--wait-for-merge` merge-and-cleanup path.
 - `theme-harness.mjs` owns only plan, review, workflow status, verification, and closeout draft artifacts.
-- Durable-context promotion stays doc-driven in v1; there is no separate harness CLI command for it.
+- `theme-ops.mjs explain` owns the structured durable delta, while `scaffold-closeout` owns the repo-local auto-promotion gate.
+- `scripts/promote-durable-context.mjs` is the repo-local helper behind that gate and the troubleshooting entrypoint when promotion needs inspection.
 - `review-plan` is a first-class standard step in the default harness route.
 - `approved` and `rejected` remain human-only workflow states.
 - Standard verification reality is `npm.cmd run harness:test:noprofile`, `npm.cmd run lint:noprofile`, `npm.cmd run typecheck:noprofile`, `npm.cmd run build:noprofile`, and `npm.cmd run guardrails:noprofile`.

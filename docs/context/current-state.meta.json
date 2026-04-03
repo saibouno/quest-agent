@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-04-02T00:00:00+09:00",
+  "updated_at": "2026-04-04T00:00:00+09:00",
   "owner": "docs/context/adapter.json",
   "status": "confirmed",
-  "review_at": "2026-04-09T00:00:00+09:00",
+  "review_at": "2026-04-11T00:00:00+09:00",
   "supersedes": [],
   "evidence_quality": "mixed",
   "source_refs": [
@@ -10,25 +10,31 @@
       "kind": "markdown",
       "path_or_uri": "README.md",
       "locator": "Current flow",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "captured_at": "2026-04-04T00:00:00+09:00"
     },
     {
       "kind": "markdown",
       "path_or_uri": "AGENTS.md",
       "locator": "Repo Rules; Verification Commands",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "captured_at": "2026-04-04T00:00:00+09:00"
     },
     {
-      "kind": "json",
-      "path_or_uri": "output/theme_ops/quest-agent-security-baseline.json",
-      "locator": "aftercare; harness.validation_runs",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "kind": "markdown",
+      "path_or_uri": "docs/runbooks/durable-context-promotion.md",
+      "locator": "Auto Promotion Contract",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     },
     {
-      "kind": "json",
-      "path_or_uri": "output/theme_ops/quest-agent-nested-worktree-build-followup-v1.json",
-      "locator": "plain_language_summary; harness.validation_runs",
-      "captured_at": "2026-04-02T00:00:00+09:00"
+      "kind": "other",
+      "path_or_uri": "scripts/theme-harness.mjs",
+      "locator": "scaffoldCloseout",
+      "captured_at": "2026-04-04T00:00:00+09:00"
+    },
+    {
+      "kind": "other",
+      "path_or_uri": "scripts/promote-durable-context.mjs",
+      "locator": "promoteDurableContext",
+      "captured_at": "2026-04-04T00:00:00+09:00"
     }
   ],
   "active_plan_pointer": {

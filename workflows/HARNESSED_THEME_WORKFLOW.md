@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Reuse one deterministic repo-local loop for `plan -> review-plan -> implementation -> verification -> aftercare -> explain -> context promotion -> closeout`.
+- Reuse one deterministic repo-local loop for `plan -> review-plan -> implementation -> verification -> aftercare -> explain -> scaffold-closeout (auto-promotion) -> closeout`.
 - Keep Quest Agent's local harness small and repo-owned in v1.
 - Keep `scripts/theme-ops.mjs` as the owner of theme state bootstrap, read-only status, and root-owned aftercare / explain / close commands.
 - Keep `scripts/theme-harness.mjs` as the owner of plan, review, workflow status, verification, and closeout draft artifacts.
@@ -72,6 +72,7 @@
   - Refreshes explicit `default`, `exempt`, and `legacy` guidance metadata without changing the real workflow progress.
 - `node scripts/theme-ops.mjs status --slug <slug>`
   - Reports the canonical repo root, owner boundary, saved checks, current workflow status, `default` / `exempt` / `legacy` harness guidance, and the shared `merge_gate_*` payload.
+  - Surfaces the shared `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action` fields.
   - Uses guidance-only labels such as `not_started`, `not_applicable`, and `legacy` when no harness workflow state exists yet.
 - `node scripts/theme-harness.mjs scaffold-plan --slug <slug>`
   - Uses the canonical `brief_path` from theme state when `--brief-path` is omitted.
@@ -99,16 +100,16 @@
   - Must run from the canonical repo root.
 - `node scripts/theme-ops.mjs explain --slug <slug> ...`
   - Records the plain-language closeout summary in theme state.
+  - Owns the structured durable delta captured for auto-promotion.
   - Must run from the canonical repo root.
-- durable-context promotion
-  - Happens after `aftercare` and `explain`, and before `scaffold-closeout`.
-  - Uses `docs/runbooks/durable-context-promotion.md` and `.agents/skills/context-promotion/SKILL.md`.
-  - Updates only the smallest necessary canonical artifacts under `docs/context/*`.
 - `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
   - Requires:
     - `workflow_status == verified`
     - `aftercare.checked_at`
     - `plain_language_summary.recorded_at`
+  - Auto-runs durable-context promotion through `scripts/promote-durable-context.mjs`.
+  - Records `closeout_ready` only after `context_promotion_state == applied | noop`.
+  - Keeps the workflow at `verified` when durable-context promotion returns `blocked`.
   - Generates `output/theme_ops/<slug>-closeout.md` with required `Known Issues / Follow-ups` content and records `closeout_ready`.
 - `node scripts/theme-ops.mjs close --slug <slug>`
   - Is the repo-local closeout owner in v1.
@@ -131,6 +132,7 @@
 - v1 makes the harness the default route for new normal themes, but only as a soft default.
 - `status` and `close` should still explain when a theme is `exempt` or `legacy`.
 - `status` and `close` expose the shared routine merge contract fields: `merge_policy`, `current_workflow_status`, `merge_gate_required`, `merge_gate_ready`, `merge_gate_reason`, and `merge_gate_next_action`.
+- `status` and `close` also expose the shared durable-context fields: `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action`.
 - `approved` and `rejected` remain human-only workflow states.
-- Durable-context promotion is a docs-and-skill step in v1, not a separate harness CLI command.
+- Durable-context promotion is repo-local to `explain -> scaffold-closeout` in v1, with `scripts/promote-durable-context.mjs` as the helper and troubleshooting entrypoint.
 - Generated harness artifacts are scratch-only under `output/theme_ops/`.

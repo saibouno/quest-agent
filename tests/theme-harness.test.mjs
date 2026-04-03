@@ -60,6 +60,13 @@ function seedRunbookFiles(repoRoot) {
     "docs/runbooks/theme-loop/PLAN_TEMPLATE.md",
     "docs/runbooks/theme-loop/STATUS_TEMPLATE.md",
     "docs/runbooks/theme-loop/CLOSEOUT_TEMPLATE.md",
+    "docs/context/adapter.json",
+    "docs/context/current-state.md",
+    "docs/context/current-state.meta.json",
+    "docs/context/open-questions.md",
+    "docs/context/metrics-source.md",
+    "docs/context/decisions/nested-worktree-root-and-tooling-resolution.md",
+    "docs/context/decisions/windows-safe-noprofile-spellings.md",
   ];
 
   for (const relativePath of targets) {
@@ -342,9 +349,50 @@ test("scaffold-closeout gates on aftercare and explain, then succeeds", (t) => {
 
   const result = scaffoldCloseout({ repoRoot, slug });
   assert.equal(result.status, "pass");
+  assert.equal(result.promotion_result, "noop");
 
   const updated = loadState(repoRoot, slug);
   assert.equal(updated.harness.workflow_status, "closeout_ready");
+  assert.equal(updated.context_promotion.state, "noop");
   assert.ok(existsSync(updated.harness.closeout_path));
   assert.match(readFileSync(updated.harness.closeout_path, "utf8"), /## Known Issues \/ Follow-ups/u);
+});
+
+test("scaffold-closeout stays at verified when durable-context promotion is blocked", (t) => {
+  const repoRoot = createFixtureRepo(t, "closeout-blocked");
+  const slug = "closeout-blocked";
+  startFixtureTheme(repoRoot, slug, ["node -e \"process.exit(0)\""]);
+  scaffoldPlan({ repoRoot, slug });
+  reviewPlan({ repoRoot, slug });
+  setStatus({ repoRoot, slug, target: "implementing" });
+  verifyTheme({ repoRoot, slug, commandRunner: passCommandRunner });
+
+  recordAftercare({
+    repoRoot,
+    cwd: repoRoot,
+    slug,
+    stuckPoints: ["Promotion drift was introduced after explain."],
+    preventionChanges: ["Auto-promotion now checks stale target hashes before writing."],
+  });
+  recordExplain({
+    repoRoot,
+    cwd: repoRoot,
+    slug,
+    oneLine: "Closeout needs durable-context promotion first.",
+    currentFocus: ["Promote durable delta before closeout."],
+  });
+
+  const currentStatePath = path.join(repoRoot, "docs", "context", "current-state.md");
+  writeFileSync(currentStatePath, `${readFileSync(currentStatePath, "utf8")}\n`, "utf8");
+
+  const result = scaffoldCloseout({ repoRoot, slug });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.context_promotion_state, "blocked");
+  assert.equal(result.context_promotion_reason, "stale_target");
+
+  const updated = loadState(repoRoot, slug);
+  assert.equal(updated.harness.workflow_status, "verified");
+  assert.equal(updated.context_promotion.state, "blocked");
+  assert.equal(updated.context_promotion.reason, "stale_target");
+  assert.ok(!existsSync(updated.harness.closeout_path));
 });

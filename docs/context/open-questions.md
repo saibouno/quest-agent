@@ -23,3 +23,7 @@
 - next unlock: resolve the Next.js `/_not-found` prerender invariant in the nested worktree build, or redefine the verification lane onto a non-nested checkout path.
 - last_verified_by: `quest-agent-security-baseline / npm.cmd run build:noprofile @ 2026-04-01T07:04:04.173Z`
 - evidence_ref: `output/theme_ops/quest-agent-security-baseline.json#validation_runs[build:noprofile@2026-04-01T07:04:04.173Z]`
+
+## Resolved / Superseded
+
+- none promoted right now.

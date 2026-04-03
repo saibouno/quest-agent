@@ -4,6 +4,7 @@
 
 - Make `docs/context/adapter.json` the repo-local owner of canonical durable context.
 - Promote only the smallest durable delta that a future thread needs to recover the repo's current state.
+- Keep `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` as the closeout gate that auto-runs durable-context promotion.
 - Keep promotion rules here; skills and theme-loop docs should only point back to this runbook.
 
 ## Repo Adapter Mapping
@@ -75,14 +76,32 @@ Every theme closeout that changes durable context should record only this delta:
 - `metric_delta`
 - `source_refs`
 
+## Auto Promotion Contract
+
+- `node scripts/theme-ops.mjs explain --slug <slug> ...` is the repo-local owner of structured durable input in theme state.
+- `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` auto-runs promotion through `scripts/promote-durable-context.mjs`.
+- The helper reads only `docs/context/adapter.json`, adapter-owned canonical artifacts, and the saved theme state.
+- Auto-promotion must not read adapter-declared fallback sources in v1.
+- `explain` captures stale-write hashes for only the canonical artifacts the helper may touch.
+- Auto-promotion returns:
+  - `applied` when canonical durable-context artifacts changed
+  - `noop` when no durable delta was recorded or the rendered patch is empty after comparison
+  - `blocked` when validation, ownership, stale-hash, duplicate-id, or write-safety checks fail
+- Canonical writes must be crash-safe:
+  - render the full patch set in memory first
+  - validate every rendered artifact before writing
+  - stage temp files first, then replace canonical targets
+  - restore already-touched canonical files if any replace fails
+
 ## Closeout Hook
 
 - After `node scripts/theme-ops.mjs aftercare --slug <slug> ...`
 - After `node scripts/theme-ops.mjs explain --slug <slug> ...`
-- Before `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
+- During `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
 
 At that point:
 
 - inspect whether the theme created a durable delta
-- update the smallest necessary canonical artifacts under `docs/context/*`
-- stop if there is no durable delta to promote
+- auto-promote the smallest necessary canonical artifacts under `docs/context/*`
+- stop with `noop` if there is no durable delta to promote
+- stop with `blocked` and keep the workflow at `verified` if promotion validation or writes fail

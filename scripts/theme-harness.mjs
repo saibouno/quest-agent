@@ -26,6 +26,7 @@ import {
   verifyWorkflowStatus,
   writeText,
 } from "./theme-harness-lib.mjs";
+import { promoteDurableContext } from "./promote-durable-context.mjs";
 import { evaluatePlanMarkdown } from "./theme-harness-review-core.mjs";
 
 const REPO_ROOT = getRepoRootFromImport(import.meta.url);
@@ -309,7 +310,7 @@ export function verifyTheme({
     state.harness.workflow_status = "verified";
     updateHarnessMetadata(state, {
       milestone: "verified",
-      nextAction: `Run \`node scripts/theme-ops.mjs aftercare --slug ${slug} ...\`, \`node scripts/theme-ops.mjs explain --slug ${slug} ...\`, and then \`node scripts/theme-harness.mjs scaffold-closeout --slug ${slug}\`.`,
+      nextAction: `Run \`node scripts/theme-ops.mjs aftercare --slug ${slug} ...\`, \`node scripts/theme-ops.mjs explain --slug ${slug} ...\`, and then \`node scripts/theme-harness.mjs scaffold-closeout --slug ${slug}\` to auto-promote durable context before closeout.`,
       updatedBy,
     });
     pushRecentDecision(state, "All saved verification commands passed.");
@@ -334,6 +335,7 @@ export function scaffoldCloseout({
   repoRoot = REPO_ROOT,
   slug,
   updatedBy = "system",
+  promotionRunner = promoteDurableContext,
 } = {}) {
   const state = loadState(repoRoot, slug);
   if (String(state.harness.workflow_status || "") !== "verified") {
@@ -358,30 +360,65 @@ export function scaffoldCloseout({
       status: "action_required",
       details: {
         missing_gates: missingGates,
-        remediation: `Run \`node scripts/theme-ops.mjs aftercare --slug ${slug} ...\` and \`node scripts/theme-ops.mjs explain --slug ${slug} ...\` before scaffold-closeout.`,
+        remediation: `Run \`node scripts/theme-ops.mjs aftercare --slug ${slug} ...\` and \`node scripts/theme-ops.mjs explain --slug ${slug} ...\` before scaffold-closeout auto-promotes durable context.`,
       },
     });
   }
 
-  const closeoutText = renderCloseoutDraft(state, readText(closeoutTemplatePath(repoRoot)));
-  writeText(state.harness.closeout_path, closeoutText);
-  state.harness.workflow_status = "closeout_ready";
-  updateHarnessMetadata(state, {
+  const promotion = promotionRunner({ repoRoot, slug });
+  if (!["applied", "noop"].includes(String(promotion.status || ""))) {
+    const refreshedState = loadState(repoRoot, slug);
+    refreshedState.harness.workflow_status = "verified";
+    updateHarnessMetadata(refreshedState, {
+      milestone: "context_promotion_blocked",
+      nextAction: refreshedState.context_promotion.next_action || `Rerun \`node scripts/theme-ops.mjs explain --slug ${slug} ...\` and then \`node scripts/theme-harness.mjs scaffold-closeout --slug ${slug}\`.`,
+      updatedBy,
+    });
+    pushRecentDecision(refreshedState, `Durable-context auto-promotion blocked closeout: ${refreshedState.context_promotion.reason}.`);
+    saveStatusNote(refreshedState, readText(statusTemplatePath(repoRoot)));
+    saveState(repoRoot, refreshedState);
+
+    return actionPayload({
+      status: "blocked",
+      message: "Closeout remains blocked until durable-context auto-promotion succeeds.",
+      details: {
+        slug,
+        workflow_status: refreshedState.harness.workflow_status,
+        closeout_path: refreshedState.harness.closeout_path,
+        context_promotion_required: refreshedState.context_promotion.required,
+        context_promotion_state: refreshedState.context_promotion.state,
+        context_promotion_reason: refreshedState.context_promotion.reason,
+        context_promotion_next_action: refreshedState.context_promotion.next_action,
+        context_promotion_changed_artifacts: refreshedState.context_promotion.changed_artifacts,
+      },
+    });
+  }
+
+  const refreshedState = loadState(repoRoot, slug);
+  const closeoutText = renderCloseoutDraft(refreshedState, readText(closeoutTemplatePath(repoRoot)));
+  writeText(refreshedState.harness.closeout_path, closeoutText);
+  refreshedState.harness.workflow_status = "closeout_ready";
+  updateHarnessMetadata(refreshedState, {
     milestone: "closeout_ready",
     nextAction: `Run \`node scripts/theme-ops.mjs close --slug ${slug}\` from the repo root.`,
     updatedBy,
   });
-  pushRecentDecision(state, "Closeout draft scaffolded from verified state, aftercare, and plain-language summary.");
-  saveStatusNote(state, readText(statusTemplatePath(repoRoot)));
-  saveState(repoRoot, state);
+  pushRecentDecision(refreshedState, `Closeout draft scaffolded after durable-context auto-promotion finished with \`${promotion.status}\`.`);
+  saveStatusNote(refreshedState, readText(statusTemplatePath(repoRoot)));
+  saveState(repoRoot, refreshedState);
 
   return actionPayload({
     status: "pass",
     message: "Closeout draft scaffolded.",
     details: {
       slug,
-      closeout_path: state.harness.closeout_path,
-      workflow_status: state.harness.workflow_status,
+      closeout_path: refreshedState.harness.closeout_path,
+      workflow_status: refreshedState.harness.workflow_status,
+      promotion_result: String(promotion.status || "noop"),
+      context_promotion_state: refreshedState.context_promotion.state,
+      context_promotion_reason: refreshedState.context_promotion.reason,
+      context_promotion_next_action: refreshedState.context_promotion.next_action,
+      context_promotion_changed_artifacts: refreshedState.context_promotion.changed_artifacts,
     },
   });
 }
