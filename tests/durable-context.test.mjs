@@ -115,7 +115,7 @@ test("current-state artifacts expose required sections and restart metadata", ()
   ]) {
     assert.match(currentState, new RegExp(`^${escapeRegExp(heading)}$`, "m"));
   }
-  assert.match(currentState, /`quest-agent-security-baseline`/);
+  assert.match(currentState, /GitHub-centered dependency security baseline/);
 
   const meta = JSON.parse(readRepoFile("docs/context/current-state.meta.json"));
   for (const key of [
@@ -135,22 +135,14 @@ test("current-state artifacts expose required sections and restart metadata", ()
     assert.ok(Object.hasOwn(meta, key), `Missing key ${key}`);
   }
 
-  assert.deepEqual(meta.active_plan_pointer, {
-    kind: "theme_state",
-    slug: "quest-agent-security-baseline",
-    path: "output/theme_ops/quest-agent-security-baseline.json",
-  });
-  assert.equal(meta.plan_status, "blocked");
-  assert.equal(meta.blocked_by.length, 1);
+  assert.equal(meta.active_plan_pointer, null);
+  assert.equal(meta.plan_status, "");
+  assert.equal(meta.blocked_by.length, 0);
+  assert.equal(meta.resume_condition, "No blocked work is recorded right now.");
   assert.equal(
-    meta.blocked_by[0].summary,
-    "as of 2026-04-01, `quest-agent-security-baseline` remained blocked by the Next.js `/_not-found` prerender invariant in its nested worktree build.",
+    meta.fallback_focus,
+    "normal feature work with GitHub-centered dependency monitoring and scoped dependency remediation themes",
   );
-  assert.equal(
-    meta.resume_condition,
-    "the nested worktree build blocker is resolved or the verification lane is redefined onto a non-nested checkout path.",
-  );
-  assert.equal(meta.fallback_focus, "durable-context/docs/non-blocked hygiene themes");
 });
 
 test("open questions and decisions keep required freshness and note structure", () => {
@@ -158,17 +150,19 @@ test("open questions and decisions keep required freshness and note structure", 
   assert.match(openQuestions, /^## Open Questions$/m);
   assert.match(openQuestions, /^## Blockers$/m);
   assert.match(openQuestions, /^## Resolved \/ Superseded$/m);
-  assert.match(openQuestions, /- id: `nested-worktree-prerender-invariant`/);
-  assert.match(openQuestions, /- observed_at: `2026-04-01T07:04:04.173Z`/);
-  assert.match(openQuestions, /- impact: /);
-  assert.match(openQuestions, /- next unlock: /);
-  assert.match(openQuestions, /- (last_verified_by|evidence_ref): /);
+  assert.match(openQuestions, /- none promoted right now\./);
+  assert.match(openQuestions, /### `github-repo-security-settings-access`/);
+  assert.match(openQuestions, /### `nested-worktree-prerender-invariant`/);
+  assert.match(openQuestions, /- status: `resolved`/);
+  assert.match(openQuestions, /- resolved_at: `2026-04-04T02:00:00\+09:00`/);
+  assert.match(openQuestions, /- source_refs:/);
 
   const decisionsDir = path.join(REPO_ROOT, "docs", "context", "decisions");
   const decisionFiles = readdirSync(decisionsDir).filter((entry) => entry.endsWith(".md")).sort();
   assert.deepEqual(decisionFiles, [
     "auto-context-closeout.md",
     "nested-worktree-root-and-tooling-resolution.md",
+    "root-checkout-security-remediation-lane.md",
     "windows-safe-noprofile-spellings.md",
   ]);
 

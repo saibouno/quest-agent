@@ -1,40 +1,40 @@
 {
-  "updated_at": "2026-04-04T02:25:17+09:00",
+  "updated_at": "2026-04-04T02:59:42+09:00",
   "owner": "docs/context/adapter.json",
   "status": "confirmed",
-  "review_at": "2026-04-11T02:25:17+09:00",
+  "review_at": "2026-04-11T02:59:42+09:00",
   "supersedes": [],
   "evidence_quality": "mixed",
   "source_refs": [
     {
       "kind": "markdown",
       "path_or_uri": "README.md",
-      "locator": "Current flow",
-      "captured_at": "2026-04-04T00:00:00+09:00"
-    },
-    {
-      "kind": "markdown",
-      "path_or_uri": "AGENTS.md",
-      "locator": "Repo Rules; Verification Commands",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "locator": "Dependency Security",
+      "captured_at": "2026-04-04T02:00:00+09:00"
     },
     {
       "kind": "markdown",
       "path_or_uri": "docs/runbooks/durable-context-promotion.md",
       "locator": "Auto Promotion Contract",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "captured_at": "2026-04-04T02:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "docs/runbooks/dependency-security.md",
+      "locator": "Baseline Controls",
+      "captured_at": "2026-04-04T02:00:00+09:00"
     },
     {
       "kind": "other",
-      "path_or_uri": "scripts/theme-harness.mjs",
-      "locator": "scaffoldCloseout",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "path_or_uri": ".github/workflows/dependency-security.yml",
+      "locator": "jobs.dependency-security",
+      "captured_at": "2026-04-04T02:00:00+09:00"
     },
     {
       "kind": "other",
       "path_or_uri": "scripts/promote-durable-context.mjs",
       "locator": "promoteDurableContext",
-      "captured_at": "2026-04-04T00:00:00+09:00"
+      "captured_at": "2026-04-04T02:00:00+09:00"
     },
     {
       "kind": "json",
@@ -55,21 +55,9 @@
       "captured_at": "2026-04-04T00:00:00+09:00"
     }
   ],
-  "active_plan_pointer": {
-    "kind": "theme_state",
-    "slug": "quest-agent-security-remediation-v1",
-    "path": "output/theme_ops/quest-agent-security-remediation-v1.json"
-  },
-  "plan_status": "closeout_ready",
-  "blocked_by": [
-    {
-      "id": "nested-worktree-prerender-invariant",
-      "summary": "as of 2026-04-01, `quest-agent-security-baseline` remained blocked by the Next.js `/_not-found` prerender invariant in its nested worktree build.",
-      "observed_at": "2026-04-01T07:04:04.173Z",
-      "evidence_ref": "output/theme_ops/quest-agent-security-baseline.json#validation_runs[build:noprofile@2026-04-01T07:04:04.173Z]",
-      "last_verified_by": "quest-agent-security-baseline / npm.cmd run build:noprofile @ 2026-04-01T07:04:04.173Z"
-    }
-  ],
-  "resume_condition": "Manual merge remains the only remaining checkpoint for the root-checkout remediation theme.",
-  "fallback_focus": "Dependency-only security follow-ups and harness verification hygiene that stay outside app runtime changes."
+  "active_plan_pointer": null,
+  "plan_status": "",
+  "blocked_by": [],
+  "resume_condition": "No blocked work is recorded right now.",
+  "fallback_focus": "normal feature work with GitHub-centered dependency monitoring and scoped dependency remediation themes"
 }

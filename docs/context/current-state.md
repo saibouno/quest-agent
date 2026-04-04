@@ -2,20 +2,23 @@
 
 ## Metadata
 
-- updated_at: `2026-04-04T00:00:00+09:00`
+- updated_at: `2026-04-04T02:59:42+09:00`
 - owner: `docs/context/adapter.json`
 - status: `confirmed`
-- review_at: `2026-04-11T00:00:00+09:00`
+- review_at: `2026-04-11T02:59:42+09:00`
 - supersedes: `none`
 - evidence_quality: `mixed`
 - source_refs:
   - `AGENTS.md#Read Order`
-  - `README.md#Current flow`
+  - `README.md#Dependency Security`
   - `docs/runbooks/durable-context-promotion.md#Auto Promotion Contract`
-  - `scripts/theme-ops.mjs#recordExplain,statusTheme,closeTheme`
-  - `scripts/theme-harness.mjs#scaffoldCloseout`
+  - `docs/runbooks/dependency-security.md#Baseline Controls`
+  - `.github/workflows/dependency-security.yml`
   - `scripts/promote-durable-context.mjs#promoteDurableContext`
-  - `output/theme_ops/quest-agent-security-baseline.json`
+  - `scripts/dependency-guardrails.mjs`
+  - `output/theme_ops/quest-agent-security-remediation-v1.json`
+  - `package.json#dependencies/devDependencies/overrides`
+  - `package-lock.json#packages`
 
 ## Product Shape
 
@@ -25,31 +28,34 @@
 
 ## Current Focus
 
-- The current GitHub dependency alerts are cleared in quest-agent-security-remediation-v1 from the root checkout without reopening the blocked nested-worktree quest-agent-security-baseline lane.
-- next and eslint-config-next now track 16.2.2, and the lockfile uses targeted overrides to keep the remaining vulnerable flatted, brace-expansion, and picomatch paths on fixed releases.
-- Root-checkout verification remains the safe remediation path on this Codex Windows setup because sandboxed harness verify can still require elevation to avoid cmd.exe EPERM.
+- The repo now pairs a GitHub-centered dependency security baseline with scaffold-closeout durable-context auto-promotion.
+- The current GitHub dependency alerts were cleared in `quest-agent-security-remediation-v1` from a root checkout without reopening the historical nested-worktree security lane.
+- `next` and `eslint-config-next` now track `16.2.2`, and scoped overrides keep the remaining `flatted`, `brace-expansion`, and `picomatch` paths on fixed releases.
 
 ## Blocked Work
 
 - Active blocked plan: `none`
 - Blocker summary: none promoted right now.
-- Resume condition: Manual merge remains the only remaining checkpoint for the root-checkout remediation theme.
+- Resume condition: No blocked work is recorded right now.
 
 ## Fallback Focus
 
-- Dependency-only security follow-ups and harness verification hygiene that stay outside app runtime changes.
+- Prefer normal feature and repo-hygiene work while GitHub owns dependency detection and recurring update PR generation.
+- Handle dependency-only remediation and override cleanup in separate scoped themes instead of widening feature lanes.
 
 ## Recent Confirmed Decisions
 
-- Dependency-only GitHub alert remediation should run in a new root-checkout theme instead of resuming the blocked nested-worktree quest-agent-security-baseline lane.
+- Dependency-only GitHub alert remediation should run in a new root-checkout theme instead of resuming the historical nested-worktree security lane.
 - `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` auto-promotes the smallest durable delta into `docs/context/*`, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
-- Scaffolded closeout is now the repo-local owner of durable-context auto-promotion, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
 - Windows-safe `:noprofile` verify/build spellings are the canonical command surface for this repo and should stay aligned across docs, harness state, and closeout.
 - Nested worktree tooling should resolve the canonical repo root through git common-dir first and prefer checkout-local `node_modules` before falling back to the canonical install.
 - Generated harness artifacts under `output/theme_ops/` remain scratch-only evidence, not canonical current-state owners.
+- Dependency security stays GitHub-centered for this repo: repo settings provide detection coverage, Dependabot owns recurring update PRs, and humans still review and merge.
+- The merge gate for dependency risk stays scoped to runtime `high` and `critical` audit findings so dev-only churn does not permanently jam `main`.
+- Any new or changed install-script package requires an allowlist update with a reason in the same PR before it can land.
 
 ## Next Safe Themes
 
-- A separate dependency-hygiene theme can remove the scoped overrides once upstream dependency trees absorb the fixed transitive releases.
-- A workflow follow-up can target the remaining cmd.exe EPERM sandbox friction so root-checkout harness verify no longer needs elevation.
-- Any broader security hardening or Supabase/tooling upgrades should stay in separate explicitly scoped themes.
+- Dependency maintenance work that removes the temporary overrides once upstream trees absorb the fixed transitive releases.
+- Durable-context and runbook follow-ups that stay within `docs/context/*`, harness docs, and related contract tests.
+- Normal product and repo-hygiene work that assumes `npm.cmd run security:verify:noprofile` is the local dependency-security baseline.

@@ -50,6 +50,14 @@ For promotion flow, backup and rollback helpers, and the environment contract, s
 - Use `npm.cmd ci` for a clean install from the committed lockfile before local verification, CI, or preview automation work.
 - Use `npm.cmd install` only when you intentionally want to add/update dependencies or rewrite `package-lock.json`.
 
+## Dependency Security
+
+- GitHub is the primary dependency-monitoring surface for this repo: dependency graph, Dependabot alerts, Dependabot security updates, and Dependabot malware alerts should stay enabled in repo settings.
+- `.github/dependabot.yml` schedules weekly Monday 09:00 JST update PRs for npm packages and GitHub Actions, while `.github/workflows/dependency-security.yml` blocks `main` on runtime `high` and `critical` audit findings.
+- Use `npm.cmd run deps:guardrails:noprofile` to enforce the reviewed install-script allowlist. Any new install-script package or reviewed version change needs an explicit allowlist update and human review.
+- Use `npm.cmd run security:verify:noprofile` when you want the local equivalent of the dependency-security CI gate.
+- Keep using `npm.cmd ci` for clean verification runs and CI. Use `npm.cmd install` only for intentional dependency changes.
+
 ## Helpful commands
 
 | Use | Command |
@@ -59,6 +67,9 @@ For promotion flow, backup and rollback helpers, and the environment contract, s
 | memory debug | `npm.cmd run dev:inspect` |
 | harness | `npm.cmd run harness:test:noprofile` |
 | repo verify | `npm.cmd run verify:noprofile` |
+| dependency security | `npm.cmd run deps:guardrails:noprofile` |
+| dependency security | `npm.cmd run audit:runtime:noprofile` |
+| dependency security | `npm.cmd run security:verify:noprofile` |
 | local checks | `npm.cmd run lint:noprofile` |
 | local checks | `npm.cmd run typecheck:noprofile` |
 | local checks | `npm.cmd run build:noprofile` |
