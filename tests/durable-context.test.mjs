@@ -141,7 +141,7 @@ test("current-state artifacts expose required sections and restart metadata", ()
   assert.equal(meta.resume_condition, "No blocked work is recorded right now.");
   assert.equal(
     meta.fallback_focus,
-    "normal feature work with GitHub-centered dependency monitoring and auto-promoted durable context",
+    "normal feature work with GitHub-centered dependency monitoring and scoped dependency remediation themes",
   );
 });
 
@@ -162,6 +162,7 @@ test("open questions and decisions keep required freshness and note structure", 
   assert.deepEqual(decisionFiles, [
     "auto-context-closeout.md",
     "nested-worktree-root-and-tooling-resolution.md",
+    "root-checkout-security-remediation-lane.md",
     "windows-safe-noprofile-spellings.md",
   ]);
 

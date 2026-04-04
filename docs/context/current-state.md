@@ -2,12 +2,12 @@
 
 ## Metadata
 
-- updated_at: `2026-04-04T02:00:00+09:00`
+- updated_at: `2026-04-04T02:59:42+09:00`
 - owner: `docs/context/adapter.json`
 - status: `confirmed`
-- review_at: `2026-04-11T02:00:00+09:00`
+- review_at: `2026-04-11T02:59:42+09:00`
 - supersedes: `none`
-- evidence_quality: `direct`
+- evidence_quality: `mixed`
 - source_refs:
   - `AGENTS.md#Read Order`
   - `README.md#Dependency Security`
@@ -16,6 +16,9 @@
   - `.github/workflows/dependency-security.yml`
   - `scripts/promote-durable-context.mjs#promoteDurableContext`
   - `scripts/dependency-guardrails.mjs`
+  - `output/theme_ops/quest-agent-security-remediation-v1.json`
+  - `package.json#dependencies/devDependencies/overrides`
+  - `package-lock.json#packages`
 
 ## Product Shape
 
@@ -26,8 +29,8 @@
 ## Current Focus
 
 - The repo now pairs a GitHub-centered dependency security baseline with scaffold-closeout durable-context auto-promotion.
-- Dependency monitoring is expected to happen through GitHub repo settings, Dependabot update PRs, and the `Dependency Security` workflow rather than ad hoc local-only checks.
-- `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` now auto-promotes the smallest durable delta into `docs/context/*` before it records `closeout_ready`.
+- The current GitHub dependency alerts were cleared in `quest-agent-security-remediation-v1` from a root checkout without reopening the historical nested-worktree security lane.
+- `next` and `eslint-config-next` now track `16.2.2`, and scoped overrides keep the remaining `flatted`, `brace-expansion`, and `picomatch` paths on fixed releases.
 
 ## Blocked Work
 
@@ -37,11 +40,12 @@
 
 ## Fallback Focus
 
-- Prefer normal feature and repo-hygiene work while GitHub continues to own dependency detection, notification, and update PR generation.
-- Keep using the repo-local harness closeout flow so canonical durable context stays aligned automatically.
+- Prefer normal feature and repo-hygiene work while GitHub owns dependency detection and recurring update PR generation.
+- Handle dependency-only remediation and override cleanup in separate scoped themes instead of widening feature lanes.
 
 ## Recent Confirmed Decisions
 
+- Dependency-only GitHub alert remediation should run in a new root-checkout theme instead of resuming the historical nested-worktree security lane.
 - `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` auto-promotes the smallest durable delta into `docs/context/*`, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
 - Windows-safe `:noprofile` verify/build spellings are the canonical command surface for this repo and should stay aligned across docs, harness state, and closeout.
 - Nested worktree tooling should resolve the canonical repo root through git common-dir first and prefer checkout-local `node_modules` before falling back to the canonical install.
@@ -52,6 +56,6 @@
 
 ## Next Safe Themes
 
-- Dependency maintenance work that clears the current moderate runtime Next.js advisory without widening the merge gate.
+- Dependency maintenance work that removes the temporary overrides once upstream trees absorb the fixed transitive releases.
 - Durable-context and runbook follow-ups that stay within `docs/context/*`, harness docs, and related contract tests.
 - Normal product and repo-hygiene work that assumes `npm.cmd run security:verify:noprofile` is the local dependency-security baseline.
