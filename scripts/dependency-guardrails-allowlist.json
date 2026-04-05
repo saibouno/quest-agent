@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "updated_at": "2026-04-04T00:00:00+09:00",
+    "updated_at": "2026-04-05T00:00:00+09:00",
     "owner": "scripts/dependency-guardrails-allowlist.json",
     "review_policy": "Any new or changed install-script package requires explicit allowlist review before it can land."
   },
@@ -10,7 +10,7 @@
       "reason": "Next.js optionally installs sharp native binaries for image optimization on supported platforms."
     },
     "supabase": {
-      "version": "2.82.0",
+      "version": "2.84.10",
       "reason": "The Supabase CLI downloads its reviewed binary during install for local backup and restore operations."
     },
     "unrs-resolver": {
