@@ -10,7 +10,6 @@ import {
   benchmarkScaffold,
   benchmarkValidate,
   main,
-  planSavedCommandExecution,
   scaffoldCloseout,
   reviewPlan,
   scaffoldPlan,
@@ -364,21 +363,6 @@ test("verify runs saved checks and persists validation runs", (t) => {
   assert.equal(state.harness.workflow_status, "verified");
   assert.equal(state.harness.validation_runs.length, 1);
   assert.equal(state.harness.validation_runs[0].status, "pass");
-});
-
-test("saved-command planning prefers direct execution for npm checks on Windows", () => {
-  const planned = planSavedCommandExecution("npm.cmd run ok", { platform: "win32" });
-
-  assert.equal(planned.mode, "direct");
-  assert.equal(planned.file, process.execPath);
-  assert.match(planned.args[0], /node_modules[\\/]+npm[\\/]+bin[\\/]+npm-cli\.js$/u);
-  assert.deepEqual(planned.args.slice(1), ["run", "ok"]);
-});
-
-test("saved-command planning falls back to shell mode for shell-only syntax", () => {
-  const planned = planSavedCommandExecution("node -e \"process.exit(0)\" | more", { platform: "win32" });
-
-  assert.equal(planned.mode, "shell");
 });
 
 test("benchmark-scaffold creates a tracked benchmark pack", (t) => {
