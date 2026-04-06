@@ -35,6 +35,21 @@ export const REQUIRED_TOP_LEVEL_KEYS = [
 ];
 
 const REQUIRED_TOP_LEVEL_KEY_SET = new Set(REQUIRED_TOP_LEVEL_KEYS);
+const REQUIRED_BUDGET_KEYS = [
+  "max_attempts",
+  "max_no_improve_streak",
+  "max_wall_clock_ms",
+  "max_kept_candidates",
+];
+const REQUIRED_BUDGET_KEY_SET = new Set(REQUIRED_BUDGET_KEYS);
+const REQUIRED_RETENTION_POLICY_KEYS = [
+  "keep_last_n_runs",
+  "keep_last_n_kept_candidates",
+  "delete_unkept_patches_after_days",
+  "delete_sandboxes_after_hours",
+  "retain_failed_sandboxes",
+];
+const REQUIRED_RETENTION_POLICY_KEY_SET = new Set(REQUIRED_RETENTION_POLICY_KEYS);
 
 const DEFAULT_MUTABLE_PATHS = [
   "prompts/archivist_system.md",
@@ -92,6 +107,28 @@ function ensureFiniteNumber(value, label) {
   return value;
 }
 
+function ensureInteger(value, label, { minimum = null } = {}) {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new HarnessError(`${label} must be an integer.`, {
+      status: "action_required",
+      details: { field: label },
+    });
+  }
+
+  if (minimum !== null && value < minimum) {
+    throw new HarnessError(`${label} must be greater than or equal to ${minimum}.`, {
+      status: "action_required",
+      details: {
+        field: label,
+        minimum,
+        value,
+      },
+    });
+  }
+
+  return value;
+}
+
 function ensureBoolean(value, label) {
   if (typeof value !== "boolean") {
     throw new HarnessError(`${label} must be a boolean.`, {
@@ -114,6 +151,33 @@ function ensureObject(value, label) {
   return value;
 }
 
+function ensureExactObjectFields(value, label, requiredKeys, requiredKeySet) {
+  const object = ensureObject(value, label);
+  const missingKeys = requiredKeys.filter((key) => !Object.hasOwn(object, key));
+  if (missingKeys.length) {
+    throw new HarnessError(`${label} is missing required fields.`, {
+      status: "action_required",
+      details: {
+        field: label,
+        missing_keys: missingKeys,
+      },
+    });
+  }
+
+  const unknownKeys = Object.keys(object).filter((key) => !requiredKeySet.has(key));
+  if (unknownKeys.length) {
+    throw new HarnessError(`${label} includes unknown fields.`, {
+      status: "action_required",
+      details: {
+        field: label,
+        unknown_keys: unknownKeys,
+      },
+    });
+  }
+
+  return object;
+}
+
 function normalizeRepoRelativePath(value, label) {
   const normalized = ensureNonEmptyString(value, label).replaceAll("\\", "/");
   const collapsed = path.posix.normalize(normalized);
@@ -132,8 +196,8 @@ function normalizeRepoRelativePath(value, label) {
 }
 
 function ensureStringArray(values, label, { normalizePaths = false } = {}) {
-  if (!Array.isArray(values) || !values.length) {
-    throw new HarnessError(`${label} must be a non-empty array.`, {
+  if (!Array.isArray(values)) {
+    throw new HarnessError(`${label} must be an array.`, {
       status: "action_required",
       details: { field: label },
     });
@@ -224,6 +288,59 @@ function ensureQuestAgentExtension(value) {
   }
 
   return normalized;
+}
+
+function ensureBudgets(value) {
+  const budgets = ensureExactObjectFields(value, "budgets", REQUIRED_BUDGET_KEYS, REQUIRED_BUDGET_KEY_SET);
+
+  return {
+    max_attempts: ensureInteger(budgets.max_attempts, "budgets.max_attempts", { minimum: 1 }),
+    max_no_improve_streak: ensureInteger(
+      budgets.max_no_improve_streak,
+      "budgets.max_no_improve_streak",
+      { minimum: 0 },
+    ),
+    max_wall_clock_ms: ensureInteger(budgets.max_wall_clock_ms, "budgets.max_wall_clock_ms", { minimum: 1 }),
+    max_kept_candidates: ensureInteger(
+      budgets.max_kept_candidates,
+      "budgets.max_kept_candidates",
+      { minimum: 1 },
+    ),
+  };
+}
+
+function ensureRetentionPolicy(value) {
+  const retentionPolicy = ensureExactObjectFields(
+    value,
+    "retention_policy",
+    REQUIRED_RETENTION_POLICY_KEYS,
+    REQUIRED_RETENTION_POLICY_KEY_SET,
+  );
+
+  return {
+    keep_last_n_runs: ensureInteger(retentionPolicy.keep_last_n_runs, "retention_policy.keep_last_n_runs", {
+      minimum: 0,
+    }),
+    keep_last_n_kept_candidates: ensureInteger(
+      retentionPolicy.keep_last_n_kept_candidates,
+      "retention_policy.keep_last_n_kept_candidates",
+      { minimum: 0 },
+    ),
+    delete_unkept_patches_after_days: ensureInteger(
+      retentionPolicy.delete_unkept_patches_after_days,
+      "retention_policy.delete_unkept_patches_after_days",
+      { minimum: 0 },
+    ),
+    delete_sandboxes_after_hours: ensureInteger(
+      retentionPolicy.delete_sandboxes_after_hours,
+      "retention_policy.delete_sandboxes_after_hours",
+      { minimum: 0 },
+    ),
+    retain_failed_sandboxes: ensureBoolean(
+      retentionPolicy.retain_failed_sandboxes,
+      "retention_policy.retain_failed_sandboxes",
+    ),
+  };
 }
 
 function splitPattern(pattern) {
@@ -386,20 +503,20 @@ function defaultBenchmarkPack({ repoRoot, packId, packPath }) {
       },
     ],
     budgets: {
-      max_baseline_runs: 3,
-      max_candidate_runs: 2,
-      max_runtime_ms: 30000,
-      parallelism: 1,
+      max_attempts: 3,
+      max_no_improve_streak: 2,
+      max_wall_clock_ms: 30000,
+      max_kept_candidates: 1,
     },
     keep_policy: {
       allow_equal_primary_with_secondary_improvement: true,
     },
     retention_policy: {
-      keep_best_runs: 3,
-      keep_recent_runs: 2,
-      trim_after_days: 7,
-      recent_window_hours: 24,
-      keep_failed_runs: true,
+      keep_last_n_runs: 3,
+      keep_last_n_kept_candidates: 2,
+      delete_unkept_patches_after_days: 7,
+      delete_sandboxes_after_hours: 24,
+      retain_failed_sandboxes: true,
     },
     extensions: {
       "quest-agent": {
@@ -465,9 +582,9 @@ export function validateBenchmarkPack(value) {
     verification_commands: ensureStringArray(pack.verification_commands, "verification_commands"),
     primary_score: ensureMetric(pack.primary_score, "primary_score"),
     secondary_metrics: ensureMetricArray(pack.secondary_metrics, "secondary_metrics"),
-    budgets: ensureObject(pack.budgets, "budgets"),
+    budgets: ensureBudgets(pack.budgets),
     keep_policy: ensureObject(pack.keep_policy, "keep_policy"),
-    retention_policy: ensureObject(pack.retention_policy, "retention_policy"),
+    retention_policy: ensureRetentionPolicy(pack.retention_policy),
     extensions: ensureObject(pack.extensions, "extensions"),
   };
 

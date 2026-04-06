@@ -106,6 +106,36 @@ function benchmarkPackPath(repoRoot, packId) {
   return path.join(repoRoot, "config", "harness_benchmark_packs", `${packId}.json`);
 }
 
+const SHARED_BUDGET_KEYS = [
+  "max_attempts",
+  "max_no_improve_streak",
+  "max_wall_clock_ms",
+  "max_kept_candidates",
+];
+
+const SHARED_RETENTION_POLICY_KEYS = [
+  "keep_last_n_runs",
+  "keep_last_n_kept_candidates",
+  "delete_unkept_patches_after_days",
+  "delete_sandboxes_after_hours",
+  "retain_failed_sandboxes",
+];
+
+const LEGACY_BUDGET_KEYS = [
+  "max_baseline_runs",
+  "max_candidate_runs",
+  "max_runtime_ms",
+  "parallelism",
+];
+
+const LEGACY_RETENTION_POLICY_KEYS = [
+  "keep_best_runs",
+  "keep_recent_runs",
+  "trim_after_days",
+  "recent_window_hours",
+  "keep_failed_runs",
+];
+
 function confirmedBrief(slug) {
   return [
     "# Theme Brief",
@@ -378,6 +408,14 @@ test("benchmark-scaffold creates a tracked benchmark pack", (t) => {
 
   const pack = JSON.parse(readFileSync(result.pack_path, "utf8"));
   assert.equal(pack.extensions["quest-agent"].execution_capability, "adapter_shell_only");
+  assert.deepEqual(Object.keys(pack.budgets).sort(), [...SHARED_BUDGET_KEYS].sort());
+  assert.deepEqual(Object.keys(pack.retention_policy).sort(), [...SHARED_RETENTION_POLICY_KEYS].sort());
+  for (const legacyKey of LEGACY_BUDGET_KEYS) {
+    assert.equal(Object.hasOwn(pack.budgets, legacyKey), false);
+  }
+  for (const legacyKey of LEGACY_RETENTION_POLICY_KEYS) {
+    assert.equal(Object.hasOwn(pack.retention_policy, legacyKey), false);
+  }
   assert.deepEqual(pack.verification_commands, [
     "npm.cmd run harness:test:noprofile",
     "npm.cmd run lint:noprofile",
@@ -432,6 +470,25 @@ test("benchmark-validate passes for a scaffolded pack with the full required con
   assert.equal(result.pack_path, scaffolded.pack_path);
   assert.equal(result.pack_hash, scaffolded.pack_hash);
   assert.equal(result.normalized_pack.primary_score.metric_key, "benchmark_score");
+  assert.deepEqual(Object.keys(result.normalized_pack.budgets).sort(), [...SHARED_BUDGET_KEYS].sort());
+  assert.deepEqual(
+    Object.keys(result.normalized_pack.retention_policy).sort(),
+    [...SHARED_RETENTION_POLICY_KEYS].sort(),
+  );
+});
+
+test("benchmark-validate passes for the checked-in tracked pack", () => {
+  const packPath = path.join(
+    CURRENT_REPO_ROOT,
+    "config",
+    "harness_benchmark_packs",
+    "quest-agent-theme-harness-v1.json",
+  );
+
+  const result = benchmarkValidate({ packPath });
+  assert.equal(result.status, "pass");
+  assert.equal(result.benchmark_id, "quest-agent-theme-harness-v1");
+  assert.equal(result.pack_path, packPath);
 });
 
 test("benchmark-validate accepts packs without primary_score.target_value", (t) => {
@@ -460,6 +517,62 @@ test("benchmark-validate accepts packs with empty secondary_metrics", (t) => {
   assert.deepEqual(result.normalized_pack.secondary_metrics, []);
 });
 
+test("benchmark-validate accepts packs with empty mutable_paths", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-empty-mutable");
+  const packId = "validate-empty-mutable";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.mutable_paths = [];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.deepEqual(result.normalized_pack.mutable_paths, []);
+});
+
+test("benchmark-validate accepts packs with empty fixed_paths", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-empty-fixed");
+  const packId = "validate-empty-fixed";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.fixed_paths = [];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.deepEqual(result.normalized_pack.fixed_paths, []);
+});
+
+test("benchmark-validate accepts packs with empty verification_commands", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-empty-verification");
+  const packId = "validate-empty-verification";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.verification_commands = [];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.deepEqual(result.normalized_pack.verification_commands, []);
+});
+
+test("benchmark-validate accepts packs when mutable_paths, fixed_paths, and verification_commands are all empty", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-empty-arrays");
+  const packId = "validate-empty-arrays";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.mutable_paths = [];
+  pack.fixed_paths = [];
+  pack.verification_commands = [];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.deepEqual(result.normalized_pack.mutable_paths, []);
+  assert.deepEqual(result.normalized_pack.fixed_paths, []);
+  assert.deepEqual(result.normalized_pack.verification_commands, []);
+});
+
 test("benchmark-validate accepts packs without target_value and with empty secondary_metrics", (t) => {
   const repoRoot = createFixtureRepo(t, "benchmark-validate-shared-contract");
   const packId = "validate-shared-contract";
@@ -473,6 +586,42 @@ test("benchmark-validate accepts packs without target_value and with empty secon
   assert.equal(result.status, "pass");
   assert.equal(Object.hasOwn(result.normalized_pack.primary_score, "target_value"), false);
   assert.deepEqual(result.normalized_pack.secondary_metrics, []);
+});
+
+test("benchmark-validate rejects legacy local budgets keys", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-legacy-budgets");
+  const packId = "validate-legacy-budgets";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.budgets.max_baseline_runs = 3;
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  assert.throws(
+    () => benchmarkValidate({ packPath: scaffolded.pack_path }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "budgets"
+      && Array.isArray(error.details.unknown_keys)
+      && error.details.unknown_keys.includes("max_baseline_runs"),
+  );
+});
+
+test("benchmark-validate rejects legacy local retention_policy keys", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-legacy-retention");
+  const packId = "validate-legacy-retention";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.retention_policy.keep_best_runs = 3;
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  assert.throws(
+    () => benchmarkValidate({ packPath: scaffolded.pack_path }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "retention_policy"
+      && Array.isArray(error.details.unknown_keys)
+      && error.details.unknown_keys.includes("keep_best_runs"),
+  );
 });
 
 test("benchmark-validate rejects unknown top-level keys", (t) => {
@@ -540,21 +689,21 @@ test("benchmark-validate computes the same hash across key order and formatting 
       },
     },
     retention_policy: {
-      keep_failed_runs: pack.retention_policy.keep_failed_runs,
-      recent_window_hours: pack.retention_policy.recent_window_hours,
-      trim_after_days: pack.retention_policy.trim_after_days,
-      keep_recent_runs: pack.retention_policy.keep_recent_runs,
-      keep_best_runs: pack.retention_policy.keep_best_runs,
+      retain_failed_sandboxes: pack.retention_policy.retain_failed_sandboxes,
+      delete_sandboxes_after_hours: pack.retention_policy.delete_sandboxes_after_hours,
+      delete_unkept_patches_after_days: pack.retention_policy.delete_unkept_patches_after_days,
+      keep_last_n_kept_candidates: pack.retention_policy.keep_last_n_kept_candidates,
+      keep_last_n_runs: pack.retention_policy.keep_last_n_runs,
     },
     keep_policy: {
       allow_equal_primary_with_secondary_improvement:
         pack.keep_policy.allow_equal_primary_with_secondary_improvement,
     },
     budgets: {
-      parallelism: pack.budgets.parallelism,
-      max_runtime_ms: pack.budgets.max_runtime_ms,
-      max_candidate_runs: pack.budgets.max_candidate_runs,
-      max_baseline_runs: pack.budgets.max_baseline_runs,
+      max_kept_candidates: pack.budgets.max_kept_candidates,
+      max_wall_clock_ms: pack.budgets.max_wall_clock_ms,
+      max_no_improve_streak: pack.budgets.max_no_improve_streak,
+      max_attempts: pack.budgets.max_attempts,
     },
     secondary_metrics: [
       {
