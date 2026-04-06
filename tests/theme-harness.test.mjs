@@ -420,6 +420,47 @@ test("benchmark-validate passes for a scaffolded pack with the full required con
   assert.equal(result.normalized_pack.primary_score.metric_key, "benchmark_score");
 });
 
+test("benchmark-validate accepts packs without primary_score.target_value", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-optional-target");
+  const packId = "validate-optional-target";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  delete pack.primary_score.target_value;
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.equal(Object.hasOwn(result.normalized_pack.primary_score, "target_value"), false);
+});
+
+test("benchmark-validate accepts packs with empty secondary_metrics", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-empty-secondary");
+  const packId = "validate-empty-secondary";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.secondary_metrics = [];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.deepEqual(result.normalized_pack.secondary_metrics, []);
+});
+
+test("benchmark-validate accepts packs without target_value and with empty secondary_metrics", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-shared-contract");
+  const packId = "validate-shared-contract";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  delete pack.primary_score.target_value;
+  pack.secondary_metrics = [];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.equal(Object.hasOwn(result.normalized_pack.primary_score, "target_value"), false);
+  assert.deepEqual(result.normalized_pack.secondary_metrics, []);
+});
+
 test("benchmark-validate rejects unknown top-level keys", (t) => {
   const repoRoot = createFixtureRepo(t, "benchmark-validate-unknown");
   const packId = "validate-unknown";

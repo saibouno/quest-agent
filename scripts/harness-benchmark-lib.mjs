@@ -172,8 +172,8 @@ function ensureMetric(value, label, { requireTargetValue = false } = {}) {
 }
 
 function ensureMetricArray(values, label) {
-  if (!Array.isArray(values) || !values.length) {
-    throw new HarnessError(`${label} must be a non-empty array.`, {
+  if (!Array.isArray(values)) {
+    throw new HarnessError(`${label} must be an array.`, {
       status: "action_required",
       details: { field: label },
     });
@@ -463,7 +463,7 @@ export function validateBenchmarkPack(value) {
     fixed_paths: ensureStringArray(pack.fixed_paths, "fixed_paths", { normalizePaths: true }),
     run_command: ensureNonEmptyString(pack.run_command, "run_command"),
     verification_commands: ensureStringArray(pack.verification_commands, "verification_commands"),
-    primary_score: ensureMetric(pack.primary_score, "primary_score", { requireTargetValue: true }),
+    primary_score: ensureMetric(pack.primary_score, "primary_score"),
     secondary_metrics: ensureMetricArray(pack.secondary_metrics, "secondary_metrics"),
     budgets: ensureObject(pack.budgets, "budgets"),
     keep_policy: ensureObject(pack.keep_policy, "keep_policy"),
