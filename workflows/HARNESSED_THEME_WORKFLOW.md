@@ -17,6 +17,7 @@
 - `.agents/skills/theme-loop/SKILL.md`
 - `scripts/theme-ops.mjs`
 - `scripts/theme-harness.mjs`
+- `scripts/harness-benchmark-lib.mjs`
 
 ## Workflow States
 
@@ -53,6 +54,9 @@
   - `node scripts/theme-harness.mjs set-status --slug <slug> --to implementing|blocked`
   - `node scripts/theme-harness.mjs verify --slug <slug>`
   - `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>`
+  - `node scripts/theme-harness.mjs benchmark-scaffold --pack-id <id> [--out <path>] [--force]`
+  - `node scripts/theme-harness.mjs benchmark-validate --pack <path>`
+  - `node scripts/theme-harness.mjs benchmark-run --pack <path>`
 - Root-owned commands:
   - `node scripts/theme-ops.mjs start ...`
   - `node scripts/theme-ops.mjs setup --slug <slug>`
@@ -117,6 +121,21 @@
   - Must run from the canonical repo root.
   - `merge_policy=manual` keeps the existing human merge checkpoint.
   - `merge_policy=auto_after_green` uses `close --wait-for-merge` to finish the local merge-and-cleanup path once the shared merge gate is ready.
+
+## Benchmark Adapter Shell
+
+- `node scripts/theme-harness.mjs benchmark-scaffold --pack-id <id> [--out <path>] [--force]`
+  - Writes tracked benchmark packs under `config/harness_benchmark_packs/`.
+  - Rejects existing targets unless `--force` is provided.
+  - Keeps the tracked pack surface prompt-only for the initial Quest Agent adapter shell.
+- `node scripts/theme-harness.mjs benchmark-validate --pack <path>`
+  - Validates the shared required top-level contract, rejects unknown top-level keys, enforces `extensions.quest-agent`, and rejects `mutable_paths` / `fixed_paths` overlap.
+  - Returns a canonical `pack_hash` computed from the validated object so key order and newline differences do not change the hash.
+- `node scripts/theme-harness.mjs benchmark-run --pack <path>`
+  - Validates the pack, then stops with `status: "action_required"` and `execution_capability: "adapter_shell_only"`.
+  - Must not create runtime artifacts under `output/theme_ops/benchmark/` in this delivery.
+- These benchmark commands are adapter-only config helpers.
+- They do not change workflow status, closeout readiness, durable-context auto-promotion, or `node scripts/theme-ops.mjs close --slug <slug>` semantics.
 
 ## Verification Reality
 

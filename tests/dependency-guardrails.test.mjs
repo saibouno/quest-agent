@@ -41,7 +41,7 @@ test("current reviewed install-script packages match the allowlist", () => {
   assert.deepEqual(result.findings, []);
   assert.deepEqual(
     result.installScriptPackages.map((pkg) => `${pkg.name}@${pkg.version}`),
-    ["sharp@0.34.5", "supabase@2.82.0", "unrs-resolver@1.11.1"],
+    ["sharp@0.34.5", "supabase@2.84.10", "unrs-resolver@1.11.1"],
   );
 });
 

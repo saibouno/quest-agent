@@ -115,7 +115,7 @@ test("current-state artifacts expose required sections and restart metadata", ()
   ]) {
     assert.match(currentState, new RegExp(`^${escapeRegExp(heading)}$`, "m"));
   }
-  assert.match(currentState, /GitHub-centered dependency security baseline/);
+  assert.match(currentState, /Dependency security stays GitHub-centered for this repo/);
 
   const meta = JSON.parse(readRepoFile("docs/context/current-state.meta.json"));
   for (const key of [
@@ -141,7 +141,7 @@ test("current-state artifacts expose required sections and restart metadata", ()
   assert.equal(meta.resume_condition, "No blocked work is recorded right now.");
   assert.equal(
     meta.fallback_focus,
-    "normal feature work with GitHub-centered dependency monitoring and scoped dependency remediation themes",
+    "Use the snapshot-backed onboarding flow for new planning work and keep legacy editing scoped to pre-snapshot goals.",
   );
 });
 
@@ -161,8 +161,10 @@ test("open questions and decisions keep required freshness and note structure", 
   const decisionFiles = readdirSync(decisionsDir).filter((entry) => entry.endsWith(".md")).sort();
   assert.deepEqual(decisionFiles, [
     "auto-context-closeout.md",
+    "goal-snapshots-own-canonical-planning-state.md",
     "nested-worktree-root-and-tooling-resolution.md",
     "root-checkout-security-remediation-lane.md",
+    "route-resimulation-preserves-executed-work.md",
     "windows-safe-noprofile-spellings.md",
   ]);
 

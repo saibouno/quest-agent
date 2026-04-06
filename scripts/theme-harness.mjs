@@ -26,6 +26,11 @@ import {
   verifyWorkflowStatus,
   writeText,
 } from "./theme-harness-lib.mjs";
+import {
+  benchmarkRunStub,
+  scaffoldBenchmarkPack,
+  validateBenchmarkPackCommand,
+} from "./harness-benchmark-lib.mjs";
 import { promoteDurableContext } from "./promote-durable-context.mjs";
 import { evaluatePlanMarkdown } from "./theme-harness-review-core.mjs";
 
@@ -562,6 +567,32 @@ export function scaffoldCloseout({
   });
 }
 
+export function benchmarkScaffold({
+  repoRoot = REPO_ROOT,
+  packId,
+  outPath = "",
+  force = false,
+} = {}) {
+  return scaffoldBenchmarkPack({
+    repoRoot,
+    packId,
+    outPath,
+    force,
+  });
+}
+
+export function benchmarkValidate({
+  packPath,
+} = {}) {
+  return validateBenchmarkPackCommand({ packPath });
+}
+
+export function benchmarkRun({
+  packPath,
+} = {}) {
+  return benchmarkRunStub({ packPath });
+}
+
 function parseCommandLine() {
   const [command, ...rest] = process.argv.slice(2);
   switch (command) {
@@ -655,6 +686,52 @@ function parseCommandLine() {
         },
       };
     }
+    case "benchmark-scaffold": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          "pack-id": { type: "string" },
+          out: { type: "string" },
+          force: { type: "boolean" },
+        },
+      });
+      return {
+        command,
+        values: {
+          packId: values["pack-id"],
+          outPath: values.out || "",
+          force: values.force || false,
+        },
+      };
+    }
+    case "benchmark-validate": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          pack: { type: "string" },
+        },
+      });
+      return {
+        command,
+        values: {
+          packPath: values.pack,
+        },
+      };
+    }
+    case "benchmark-run": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          pack: { type: "string" },
+        },
+      });
+      return {
+        command,
+        values: {
+          packPath: values.pack,
+        },
+      };
+    }
     default:
       throw new HarnessError("Unknown theme-harness command.", {
         status: "action_required",
@@ -684,6 +761,15 @@ export async function main() {
       break;
     case "scaffold-closeout":
       payload = scaffoldCloseout(values);
+      break;
+    case "benchmark-scaffold":
+      payload = benchmarkScaffold(values);
+      break;
+    case "benchmark-validate":
+      payload = benchmarkValidate(values);
+      break;
+    case "benchmark-run":
+      payload = benchmarkRun(values);
       break;
     default:
       throw new HarnessError("Unknown theme-harness command.", {
