@@ -1,0 +1,74 @@
+{
+  "contract_version": "1",
+  "benchmark_id": "quest-agent-theme-harness-v1",
+  "description": "Adapter-only benchmark shell for prompt-only Quest Agent theme-harness mutations.",
+  "target_surface": "quest-agent-theme-harness-prompts",
+  "mutable_paths": [
+    "prompts/archivist_system.md",
+    "prompts/realist_system.md",
+    "prompts/router_system.md",
+    "prompts/scout_system.md",
+    "prompts/skeptic_system.md"
+  ],
+  "fixed_paths": [
+    ".agents/skills/theme-loop/SKILL.md",
+    ".agents/skills/context-promotion/SKILL.md",
+    "workflows/HARNESSED_THEME_WORKFLOW.md",
+    "scripts/theme-harness.mjs",
+    "scripts/theme-harness-lib.mjs",
+    "scripts/theme-ops.mjs",
+    "scripts/promote-durable-context.mjs",
+    "docs/context/**",
+    "app/**",
+    "components/**",
+    "lib/**",
+    "data/**",
+    "supabase/**",
+    "package.json",
+    "package-lock.json"
+  ],
+  "run_command": "node scripts/theme-harness.mjs benchmark-run --pack config/harness_benchmark_packs/quest-agent-theme-harness-v1.json",
+  "verification_commands": [
+    "npm.cmd run harness:test:noprofile",
+    "npm.cmd run lint:noprofile",
+    "npm.cmd run typecheck:noprofile",
+    "npm.cmd run build:noprofile",
+    "npm.cmd run guardrails:noprofile"
+  ],
+  "primary_score": {
+    "metric_key": "benchmark_score",
+    "objective": "maximize",
+    "improvement_threshold": 0.05,
+    "target_value": 0.7
+  },
+  "secondary_metrics": [
+    {
+      "metric_key": "latency_ms",
+      "objective": "minimize",
+      "improvement_threshold": 1
+    }
+  ],
+  "budgets": {
+    "max_attempts": 3,
+    "max_no_improve_streak": 2,
+    "max_wall_clock_ms": 30000,
+    "max_kept_candidates": 1
+  },
+  "keep_policy": {
+    "allow_equal_primary_with_secondary_improvement": true
+  },
+  "retention_policy": {
+    "keep_last_n_runs": 3,
+    "keep_last_n_kept_candidates": 2,
+    "delete_unkept_patches_after_days": 7,
+    "delete_sandboxes_after_hours": 24,
+    "retain_failed_sandboxes": true
+  },
+  "extensions": {
+    "quest-agent": {
+      "execution_capability": "adapter_shell_only",
+      "future_runtime_root": "output/theme_ops/benchmark",
+      "verification_profile": "quest-agent-harness-v1"
+    }
+  }
+}
