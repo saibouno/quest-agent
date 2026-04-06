@@ -50,6 +50,14 @@ It only defines how Quest Agent moves work through `main`, `preview/demo`, and `
 - Use `npm.cmd install` only when you intentionally want to add/update dependencies or rewrite `package-lock.json`.
 - Use `npm.cmd run verify:noprofile` for the repo's baseline non-build check pass, then layer the remaining required checks on top when the theme demands them.
 
+## Benchmark adapter shell
+
+- Quest Agent exposes only an adapter-only benchmark shell in v1.1.
+- `node scripts/theme-harness.mjs benchmark-scaffold --pack-id <id> [--out <path>] [--force]` writes tracked packs under `config/harness_benchmark_packs/`.
+- `node scripts/theme-harness.mjs benchmark-validate --pack <path>` validates the shared contract and returns a canonical pack hash from the normalized pack object.
+- `node scripts/theme-harness.mjs benchmark-run --pack <path>` is intentionally non-runnable in this repo and returns `status: "action_required"` with `execution_capability: "adapter_shell_only"`.
+- This adapter shell is separate from preview promotion, closeout, and durable-context auto-promotion. It must not change `theme-ops.mjs close` semantics or create runtime artifacts under `output/theme_ops/benchmark/` in this delivery.
+
 ## Promotion flow
 1. Land implementation changes in `main` first.
 2. Reflect `main` into `preview/demo` for lightweight validation.

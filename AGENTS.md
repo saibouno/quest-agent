@@ -22,6 +22,7 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - Deterministic state, validation, and persistence rules live in `lib/quest-agent/`.
 - Theme harness workflow docs live in `workflows/HARNESSED_THEME_WORKFLOW.md` and `docs/runbooks/theme-loop/`.
 - The canonical harness skill lives at `.agents/skills/theme-loop/SKILL.md`.
+- Benchmark adapter-shell validation lives in `scripts/theme-harness.mjs`, `scripts/harness-benchmark-lib.mjs`, and tracked packs under `config/harness_benchmark_packs/`.
 
 ## Repo Rules
 - External behavior stays as one Quest Agent.
@@ -32,6 +33,7 @@ This file keeps Quest Agent-specific guidance and exceptions only.
 - Create GitHub PRs in Japanese by default.
 - Theme harness runtime artifacts stay scratch-only under `output/theme_ops/`.
 - Theme harness control lives in `scripts/theme-ops.mjs` and `scripts/theme-harness.mjs`; do not reintroduce Python for this loop in v1.
+- `theme-harness.mjs benchmark-scaffold|benchmark-validate|benchmark-run` are adapter-only benchmark commands. They do not change closeout semantics, durable-context auto-promotion, or `theme-ops.mjs close`.
 - `node scripts/theme-ops.mjs close --slug <slug>` keeps the manual lane as a repo-local readiness command in v1. `node scripts/theme-ops.mjs close --slug <slug> --wait-for-merge` may finish eligible `auto_after_green` themes through the local merge-and-cleanup path.
 
 ## Branch And Preview Rules

@@ -5,10 +5,21 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { scaffoldCloseout, reviewPlan, scaffoldPlan, setStatus, verifyTheme } from "../scripts/theme-harness.mjs";
+import {
+  benchmarkRun,
+  benchmarkScaffold,
+  benchmarkValidate,
+  main,
+  planSavedCommandExecution,
+  scaffoldCloseout,
+  reviewPlan,
+  scaffoldPlan,
+  setStatus,
+  verifyTheme,
+} from "../scripts/theme-harness.mjs";
 import { evaluatePlanMarkdown } from "../scripts/theme-harness-review-core.mjs";
 import { recordAftercare, recordExplain, startTheme } from "../scripts/theme-ops.mjs";
-import { detectCanonicalRepoRoot, loadState, resolveCheckoutRoots } from "../scripts/theme-harness-lib.mjs";
+import { HarnessError, actionPayload, detectCanonicalRepoRoot, loadState, resolveCheckoutRoots } from "../scripts/theme-harness-lib.mjs";
 
 const CURRENT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const reviewFixtures = JSON.parse(
@@ -89,6 +100,10 @@ function createFixtureRepo(testContext, suffix) {
   writeFileSync(path.join(repoRoot, "README.md"), "# fixture\n", "utf8");
 
   return repoRoot;
+}
+
+function benchmarkPackPath(repoRoot, packId) {
+  return path.join(repoRoot, "config", "harness_benchmark_packs", `${packId}.json`);
 }
 
 function confirmedBrief(slug) {
@@ -321,6 +336,258 @@ test("verify runs saved checks and persists validation runs", (t) => {
   assert.equal(state.harness.validation_runs[0].status, "pass");
 });
 
+test("saved-command planning prefers direct execution for npm checks on Windows", () => {
+  const planned = planSavedCommandExecution("npm.cmd run ok", { platform: "win32" });
+
+  assert.equal(planned.mode, "direct");
+  assert.equal(planned.file, process.execPath);
+  assert.match(planned.args[0], /node_modules[\\/]+npm[\\/]+bin[\\/]+npm-cli\.js$/u);
+  assert.deepEqual(planned.args.slice(1), ["run", "ok"]);
+});
+
+test("saved-command planning falls back to shell mode for shell-only syntax", () => {
+  const planned = planSavedCommandExecution("node -e \"process.exit(0)\" | more", { platform: "win32" });
+
+  assert.equal(planned.mode, "shell");
+});
+
+test("benchmark-scaffold creates a tracked benchmark pack", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-scaffold");
+  const packId = "prompt-pack";
+
+  const result = benchmarkScaffold({ repoRoot, packId });
+  assert.equal(result.status, "pass");
+  assert.equal(result.benchmark_id, packId);
+  assert.equal(result.created, true);
+  assert.equal(result.overwritten, false);
+  assert.ok(existsSync(result.pack_path));
+
+  const pack = JSON.parse(readFileSync(result.pack_path, "utf8"));
+  assert.equal(pack.extensions["quest-agent"].execution_capability, "adapter_shell_only");
+  assert.deepEqual(pack.verification_commands, [
+    "npm.cmd run harness:test:noprofile",
+    "npm.cmd run lint:noprofile",
+    "npm.cmd run typecheck:noprofile",
+    "npm.cmd run build:noprofile",
+    "npm.cmd run guardrails:noprofile",
+  ]);
+});
+
+test("benchmark-scaffold rejects an existing pack unless force is set", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-scaffold-existing");
+  const packId = "prompt-pack";
+
+  benchmarkScaffold({ repoRoot, packId });
+
+  assert.throws(
+    () => benchmarkScaffold({ repoRoot, packId }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && /already exists/u.test(error.message),
+  );
+});
+
+test("benchmark-scaffold overwrites an existing pack only with force", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-scaffold-force");
+  const packId = "prompt-pack";
+  const first = benchmarkScaffold({ repoRoot, packId });
+
+  const packPath = benchmarkPackPath(repoRoot, packId);
+  const mutated = JSON.parse(readFileSync(packPath, "utf8"));
+  mutated.description = "stale";
+  writeFileSync(packPath, JSON.stringify(mutated, null, 2), "utf8");
+
+  const result = benchmarkScaffold({ repoRoot, packId, force: true });
+  assert.equal(result.status, "pass");
+  assert.equal(result.created, false);
+  assert.equal(result.overwritten, true);
+  assert.equal(result.pack_hash === first.pack_hash, true);
+
+  const overwritten = JSON.parse(readFileSync(packPath, "utf8"));
+  assert.notEqual(overwritten.description, "stale");
+});
+
+test("benchmark-validate passes for a scaffolded pack with the full required contract", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-pass");
+  const packId = "validate-pass";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+
+  const result = benchmarkValidate({ packPath: scaffolded.pack_path });
+  assert.equal(result.status, "pass");
+  assert.equal(result.benchmark_id, packId);
+  assert.equal(result.pack_path, scaffolded.pack_path);
+  assert.equal(result.pack_hash, scaffolded.pack_hash);
+  assert.equal(result.normalized_pack.primary_score.metric_key, "benchmark_score");
+});
+
+test("benchmark-validate rejects unknown top-level keys", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-unknown");
+  const packId = "validate-unknown";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.unexpected = true;
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  assert.throws(
+    () => benchmarkValidate({ packPath: scaffolded.pack_path }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && Array.isArray(error.details.unknown_top_level_keys)
+      && error.details.unknown_top_level_keys.includes("unexpected"),
+  );
+});
+
+test("benchmark-validate rejects overlaps between mutable_paths and fixed_paths", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-overlap");
+  const packId = "validate-overlap";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  pack.fixed_paths = ["prompts/**", ...pack.fixed_paths];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  assert.throws(
+    () => benchmarkValidate({ packPath: scaffolded.pack_path }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && Array.isArray(error.details.overlaps)
+      && error.details.overlaps.some((entry) => entry.fixed_path === "prompts/**"),
+  );
+});
+
+test("benchmark-validate rejects packs without extensions.quest-agent", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-extension");
+  const packId = "validate-extension";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+  delete pack.extensions["quest-agent"];
+  writeFileSync(scaffolded.pack_path, JSON.stringify(pack, null, 2), "utf8");
+
+  assert.throws(
+    () => benchmarkValidate({ packPath: scaffolded.pack_path }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && /extensions\.quest-agent/u.test(error.message),
+  );
+});
+
+test("benchmark-validate computes the same hash across key order and formatting changes", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-hash");
+  const packId = "validate-hash";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const pack = JSON.parse(readFileSync(scaffolded.pack_path, "utf8"));
+
+  const reorderedPack = {
+    extensions: {
+      "quest-agent": {
+        verification_profile: pack.extensions["quest-agent"].verification_profile,
+        future_runtime_root: pack.extensions["quest-agent"].future_runtime_root,
+        execution_capability: pack.extensions["quest-agent"].execution_capability,
+      },
+    },
+    retention_policy: {
+      keep_failed_runs: pack.retention_policy.keep_failed_runs,
+      recent_window_hours: pack.retention_policy.recent_window_hours,
+      trim_after_days: pack.retention_policy.trim_after_days,
+      keep_recent_runs: pack.retention_policy.keep_recent_runs,
+      keep_best_runs: pack.retention_policy.keep_best_runs,
+    },
+    keep_policy: {
+      allow_equal_primary_with_secondary_improvement:
+        pack.keep_policy.allow_equal_primary_with_secondary_improvement,
+    },
+    budgets: {
+      parallelism: pack.budgets.parallelism,
+      max_runtime_ms: pack.budgets.max_runtime_ms,
+      max_candidate_runs: pack.budgets.max_candidate_runs,
+      max_baseline_runs: pack.budgets.max_baseline_runs,
+    },
+    secondary_metrics: [
+      {
+        improvement_threshold: pack.secondary_metrics[0].improvement_threshold,
+        objective: pack.secondary_metrics[0].objective,
+        metric_key: pack.secondary_metrics[0].metric_key,
+      },
+    ],
+    primary_score: {
+      target_value: pack.primary_score.target_value,
+      improvement_threshold: pack.primary_score.improvement_threshold,
+      objective: pack.primary_score.objective,
+      metric_key: pack.primary_score.metric_key,
+    },
+    verification_commands: [...pack.verification_commands],
+    run_command: pack.run_command,
+    fixed_paths: [...pack.fixed_paths],
+    mutable_paths: [...pack.mutable_paths],
+    target_surface: pack.target_surface,
+    description: pack.description,
+    benchmark_id: pack.benchmark_id,
+    contract_version: pack.contract_version,
+  };
+
+  const altPackPath = benchmarkPackPath(repoRoot, "validate-hash-reordered");
+  writeFileSync(altPackPath, `${JSON.stringify(reorderedPack, null, 4)}\n\n`, "utf8");
+
+  const original = benchmarkValidate({ packPath: scaffolded.pack_path });
+  const reordered = benchmarkValidate({ packPath: altPackPath });
+
+  assert.equal(original.pack_hash, reordered.pack_hash);
+});
+
+test("benchmark-run direct invocation uses HarnessError action_required flow", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-run-direct");
+  const packId = "run-direct";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+
+  assert.throws(
+    () => benchmarkRun({ packPath: scaffolded.pack_path }),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.execution_capability === "adapter_shell_only"
+      && error.details.benchmark_id === packId,
+  );
+});
+
+test("benchmark-run returns a non-runnable stub without creating runtime artifacts", async (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-run-cli");
+  const packId = "run-cli";
+  const scaffolded = benchmarkScaffold({ repoRoot, packId });
+  const runtimeRoot = path.join(repoRoot, "output", "theme_ops", "benchmark");
+
+  assert.equal(existsSync(runtimeRoot), false);
+
+  const originalArgv = process.argv;
+  let exitCode = 0;
+  let payload = null;
+
+  process.argv = [
+    process.execPath,
+    path.join(CURRENT_REPO_ROOT, "scripts", "theme-harness.mjs"),
+    "benchmark-run",
+    "--pack",
+    scaffolded.pack_path,
+  ];
+
+  try {
+    await main();
+    assert.fail("benchmark-run should surface an action_required error through the CLI flow.");
+  } catch (error) {
+    if (!(error instanceof HarnessError)) {
+      throw error;
+    }
+    payload = actionPayload({ status: error.status, message: error.message, details: error.details });
+    exitCode = 1;
+  } finally {
+    process.argv = originalArgv;
+  }
+
+  assert.equal(exitCode, 1);
+  assert.equal(payload.status, "action_required");
+  assert.equal(payload.execution_capability, "adapter_shell_only");
+  assert.equal(payload.benchmark_id, packId);
+  assert.equal(payload.pack_path, scaffolded.pack_path);
+  assert.equal(payload.pack_hash, scaffolded.pack_hash);
+  assert.equal(existsSync(runtimeRoot), false);
+});
 test("scaffold-closeout gates on aftercare and explain, then succeeds", (t) => {
   const repoRoot = createFixtureRepo(t, "closeout");
   const slug = "closeout";
