@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { scaffoldCloseout, reviewPlan, scaffoldPlan, setStatus, verifyTheme } from "../scripts/theme-harness.mjs";
+import { planSavedCommandExecution, scaffoldCloseout, reviewPlan, scaffoldPlan, setStatus, verifyTheme } from "../scripts/theme-harness.mjs";
 import { evaluatePlanMarkdown } from "../scripts/theme-harness-review-core.mjs";
 import { recordAftercare, recordExplain, startTheme } from "../scripts/theme-ops.mjs";
 import { detectCanonicalRepoRoot, loadState, resolveCheckoutRoots } from "../scripts/theme-harness-lib.mjs";
@@ -101,6 +101,7 @@ function confirmedBrief(slug) {
     `- Goal: Add deterministic harness support for ${slug}.`,
     "- Done condition: The harness scripts and docs are in place and the saved checks pass.",
     "- Expected end state: merge_and_delete",
+    "- Publish / handoff boundary: Stop at local closeout and a local commit. Push, PR creation, and merge handling stay out of scope unless the confirmed brief explicitly extends the lane.",
     "",
     "## Key Changes",
     "",
@@ -256,6 +257,19 @@ test("scaffold-plan creates canonical plan and status artifacts", (t) => {
   assert.ok(existsSync(state.harness.status_path));
 });
 
+test("scaffold-plan injects a default publish boundary when the brief omits it", (t) => {
+  const repoRoot = createFixtureRepo(t, "scaffold-publish-boundary");
+  const slug = "scaffold-publish-boundary";
+  const state = startFixtureTheme(repoRoot, slug);
+  const briefWithoutBoundary = confirmedBrief(slug).replace(/^-\s*Publish \/ handoff boundary:.*$\n?/m, "");
+  writeFileSync(state.brief_path, briefWithoutBoundary, "utf8");
+
+  scaffoldPlan({ repoRoot, slug });
+
+  const planText = readFileSync(state.harness.plan_path, "utf8");
+  assert.match(planText, /- Publish \/ handoff boundary: Stop at local closeout and a local commit\./u);
+});
+
 test("review-plan records pass and revise_required results", (t) => {
   const repoRoot = createFixtureRepo(t, "review");
   const slug = "review";
@@ -319,6 +333,21 @@ test("verify runs saved checks and persists validation runs", (t) => {
   assert.equal(state.harness.workflow_status, "verified");
   assert.equal(state.harness.validation_runs.length, 1);
   assert.equal(state.harness.validation_runs[0].status, "pass");
+});
+
+test("saved-command planning prefers direct execution for npm checks on Windows", () => {
+  const planned = planSavedCommandExecution("npm.cmd run ok", { platform: "win32" });
+
+  assert.equal(planned.mode, "direct");
+  assert.equal(planned.file, process.execPath);
+  assert.match(planned.args[0], /node_modules[\\/]+npm[\\/]+bin[\\/]+npm-cli\.js$/u);
+  assert.deepEqual(planned.args.slice(1), ["run", "ok"]);
+});
+
+test("saved-command planning falls back to shell mode for shell-only syntax", () => {
+  const planned = planSavedCommandExecution("node -e \"process.exit(0)\" | more", { platform: "win32" });
+
+  assert.equal(planned.mode, "shell");
 });
 
 test("scaffold-closeout gates on aftercare and explain, then succeeds", (t) => {

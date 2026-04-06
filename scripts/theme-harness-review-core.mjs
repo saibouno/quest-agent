@@ -1,6 +1,12 @@
 import { parseMarkdownSections, readSummaryField } from "./theme-harness-lib.mjs";
 
-export const CHECKLIST_VERSION = 2;
+export const CHECKLIST_VERSION = 3;
+
+function readPublishBoundary(summarySection) {
+  return readSummaryField(summarySection, "Publish / handoff boundary")
+    || readSummaryField(summarySection, "Publish boundary")
+    || readSummaryField(summarySection, "Handoff boundary");
+}
 
 const CHECKS = [
   {
@@ -74,6 +80,15 @@ const CHECKS = [
       return Boolean(readSummaryField(sections.Summary || "", "Rollback Class"));
     },
     failure: "Summary is missing a concrete rollback class.",
+  },
+  {
+    item_id: "publish_boundary_explicit",
+    label: "publish / handoff boundary explicit",
+    finding_code: "missing_publish_boundary",
+    passes(sections) {
+      return Boolean(readPublishBoundary(sections.Summary || ""));
+    },
+    failure: "Summary is missing a concrete publish / handoff boundary.",
   },
   {
     item_id: "verification_command_concrete",

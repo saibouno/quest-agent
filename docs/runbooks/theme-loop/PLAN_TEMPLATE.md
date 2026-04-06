@@ -12,6 +12,7 @@ Use this template through `node scripts/theme-harness.mjs scaffold-plan --slug <
 - Shared-core / hot-file risk: {{SHARED_CORE_RISK}}
 - Merge Policy: `{{MERGE_POLICY}}`
 - Rollback Class: `{{ROLLBACK_CLASS}}`
+- Publish / handoff boundary: {{PUBLISH_BOUNDARY}}
 - Source brief: `{{BRIEF_PATH}}`
 
 ## Key Changes

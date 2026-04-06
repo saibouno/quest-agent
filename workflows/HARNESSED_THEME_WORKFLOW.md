@@ -82,7 +82,8 @@
 - `node scripts/theme-harness.mjs review-plan --slug <slug>`
   - Runs deterministic structure review through the shared pure evaluator in `scripts/theme-harness-review-core.mjs`.
   - Writes `review_results` with stable `schema_version`, `checklist_results`, and `finding_codes`.
-  - Requires explicit `Merge Policy` and `Rollback Class` lines in the generated plan summary.
+  - Requires explicit `Merge Policy`, `Rollback Class`, and `Publish / handoff boundary` lines in the generated plan summary.
+  - The publish / handoff boundary must say whether the lane stops at local closeout + commit or continues through push / PR handling.
   - Records `plan_reviewed` only when findings are empty.
 - `node scripts/theme-harness.mjs set-status --slug <slug> --to implementing|blocked`
   - Allows only:
@@ -131,6 +132,7 @@
 
 - v1 makes the harness the default route for new normal themes, but only as a soft default.
 - `status` and `close` should still explain when a theme is `exempt` or `legacy`.
+- Every confirmed brief and scaffolded plan must make the publish / handoff boundary explicit so local closeout is not confused with remote push / PR work.
 - `status` and `close` expose the shared routine merge contract fields: `merge_policy`, `current_workflow_status`, `merge_gate_required`, `merge_gate_ready`, `merge_gate_reason`, and `merge_gate_next_action`.
 - `status` and `close` also expose the shared durable-context fields: `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action`.
 - `approved` and `rejected` remain human-only workflow states.

@@ -738,6 +738,14 @@ export function defaultApprovalBoundary() {
   return "Stay inside `quest-agent` and the local harness surface. Do not extract shared code or add external mutations in v1.";
 }
 
+export function defaultPublishBoundary(mergePolicy = MERGE_POLICY_MANUAL) {
+  if (mergePolicy === MERGE_POLICY_AUTO_AFTER_GREEN) {
+    return "Continue through local closeout and the eligible `close --wait-for-merge` merge-and-cleanup path only when the shared merge gate is ready.";
+  }
+
+  return "Stop at local closeout and a local commit. Push, PR creation, and merge handling stay out of scope unless the confirmed brief explicitly extends the lane.";
+}
+
 export function defaultOutOfScope() {
   return [
     "- Shared extraction with `cafe-agent-os`.",
@@ -775,6 +783,10 @@ export function renderTemplate(templateText, replacements) {
 export function buildPlanFromBrief({ briefText, state, templateText }) {
   const sections = parseMarkdownSections(briefText);
   const summarySection = sections.Summary || "";
+  const publishBoundary = readSummaryField(summarySection, "Publish / handoff boundary")
+    || readSummaryField(summarySection, "Publish boundary")
+    || readSummaryField(summarySection, "Handoff boundary")
+    || defaultPublishBoundary(state.merge_policy);
   const replacements = {
     THEME_NAME: readSummaryField(summarySection, "Theme name") || state.theme_name,
     BRANCH: state.branch,
@@ -785,6 +797,7 @@ export function buildPlanFromBrief({ briefText, state, templateText }) {
     SHARED_CORE_RISK: readSummaryField(summarySection, "Shared-core / hot-file risk") || defaultSharedCoreRisk(),
     MERGE_POLICY: state.merge_policy || MERGE_POLICY_MANUAL,
     ROLLBACK_CLASS: state.rollback_class || ROLLBACK_CLASS_MANUAL,
+    PUBLISH_BOUNDARY: publishBoundary,
     BRIEF_PATH: state.brief_path,
     KEY_CHANGES: sections["Key Changes"] || "- Capture the implementation changes in the canonical brief before scaffold-plan.",
     IMPORTANT_INTERFACES: sections["Important Interfaces"] || defaultImportantInterfaces(),
@@ -814,6 +827,7 @@ export function briefStubContent(state) {
     `- Expected end state: ${state.expected_end_state || "merge_and_delete"}`,
     `- Merge Policy: \`${state.merge_policy || MERGE_POLICY_MANUAL}\``,
     `- Rollback Class: \`${state.rollback_class || ROLLBACK_CLASS_MANUAL}\``,
+    `- Publish / handoff boundary: ${defaultPublishBoundary(state.merge_policy)}`,
     "",
     "## Key Changes",
     "",

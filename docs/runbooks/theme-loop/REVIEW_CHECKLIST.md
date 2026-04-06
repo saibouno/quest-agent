@@ -1,6 +1,6 @@
 # Theme Loop Review Checklist
 
-Checklist version: 2
+Checklist version: 3
 
 Use this checklist through `node scripts/theme-harness.mjs review-plan --slug <slug>`.
 
@@ -22,6 +22,8 @@ Use this checklist through `node scripts/theme-harness.mjs review-plan --slug <s
   - `## Summary` includes `Merge Policy`.
 - `rollback_class_explicit` | rollback class explicit | `missing_rollback_class`
   - `## Summary` includes `Rollback Class`.
+- `publish_boundary_explicit` | publish / handoff boundary explicit | `missing_publish_boundary`
+  - `## Summary` includes `Publish / handoff boundary`.
 - `verification_command_concrete` | verification command concrete | `missing_verify_command`
   - `## Test Plan` includes at least one explicit verification command.
 
