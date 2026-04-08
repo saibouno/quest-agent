@@ -15,6 +15,7 @@ import {
   hasBriefStubSentinel,
   loadState,
   nowIso,
+  parseMarkdownSections,
   printJson,
   pushRecentDecision,
   readText,
@@ -27,9 +28,19 @@ import {
   writeText,
 } from "./theme-harness-lib.mjs";
 import {
+  PORTFOLIO_COORDINATION_SECTION,
+  PORTFOLIO_SHARED_CONTRACT_REF,
+  computePortfolioEnvelopeFingerprint,
+  extractPortfolioEnvelopeJson,
+  invalidatePortfolioSummary,
+  normalizePortfolioCoordinationEnvelope,
+} from "./theme-portfolio-contract.mjs";
+import {
   benchmarkRunStub,
   scaffoldBenchmarkPack,
   validateBenchmarkPackCommand,
+  validatePromotionPacketCommand,
+  validateShadowAdoptionCommand,
 } from "./harness-benchmark-lib.mjs";
 import { promoteDurableContext } from "./promote-durable-context.mjs";
 import { evaluatePlanMarkdown } from "./theme-harness-review-core.mjs";
@@ -287,16 +298,33 @@ export function reviewPlan({
     });
   }
 
-  const reviewResult = evaluatePlanMarkdown(readText(state.harness.plan_path));
+  const planText = readText(state.harness.plan_path);
+  const reviewResult = evaluatePlanMarkdown(planText);
   state.harness.review_results = reviewResult;
   if (reviewResult.result === "pass") {
+    const sections = parseMarkdownSections(planText);
+    const normalizedEnvelope = normalizePortfolioCoordinationEnvelope(
+      extractPortfolioEnvelopeJson(sections[PORTFOLIO_COORDINATION_SECTION] || ""),
+    );
+    const envelopeFingerprint = computePortfolioEnvelopeFingerprint(normalizedEnvelope);
+    state.portfolio_coordination.envelope = normalizedEnvelope;
+    state.portfolio_coordination.summary = invalidatePortfolioSummary(
+      state.portfolio_coordination.summary,
+      {
+        envelopeFingerprint,
+        sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
+      },
+    );
     state.harness.workflow_status = "plan_reviewed";
     updateHarnessMetadata(state, {
       milestone: "plan_reviewed",
       nextAction: `Run \`node scripts/theme-harness.mjs set-status --slug ${slug} --to implementing\`.`,
       updatedBy,
     });
-    pushRecentDecision(state, "Plan review passed with no deterministic findings.");
+    pushRecentDecision(
+      state,
+      "Plan review passed and invalidated the saved portfolio summary until the next portfolio refresh.",
+    );
   } else {
     state.harness.workflow_status = "plan_drafted";
     updateHarnessMetadata(state, {
@@ -319,6 +347,8 @@ export function reviewPlan({
       review_path: state.harness.review_path,
       workflow_status: state.harness.workflow_status,
       review_results: reviewResult,
+      portfolio_summary_valid: state.portfolio_coordination.summary.summary_valid,
+      portfolio_envelope_fingerprint: state.portfolio_coordination.summary.envelope_fingerprint,
     },
   });
 }
@@ -587,6 +617,18 @@ export function benchmarkValidate({
   return validateBenchmarkPackCommand({ packPath });
 }
 
+export function benchmarkValidatePromotionPacket({
+  filePath,
+} = {}) {
+  return validatePromotionPacketCommand({ filePath });
+}
+
+export function benchmarkValidateShadowAdoption({
+  filePath,
+} = {}) {
+  return validateShadowAdoptionCommand({ filePath });
+}
+
 export function benchmarkRun({
   packPath,
 } = {}) {
@@ -732,6 +774,34 @@ function parseCommandLine() {
         },
       };
     }
+    case "benchmark-validate-promotion-packet": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          file: { type: "string" },
+        },
+      });
+      return {
+        command,
+        values: {
+          filePath: values.file,
+        },
+      };
+    }
+    case "benchmark-validate-shadow-adoption": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          file: { type: "string" },
+        },
+      });
+      return {
+        command,
+        values: {
+          filePath: values.file,
+        },
+      };
+    }
     default:
       throw new HarnessError("Unknown theme-harness command.", {
         status: "action_required",
@@ -770,6 +840,12 @@ export async function main() {
       break;
     case "benchmark-run":
       payload = benchmarkRun(values);
+      break;
+    case "benchmark-validate-promotion-packet":
+      payload = benchmarkValidatePromotionPacket(values);
+      break;
+    case "benchmark-validate-shadow-adoption":
+      payload = benchmarkValidateShadowAdoption(values);
       break;
     default:
       throw new HarnessError("Unknown theme-harness command.", {
