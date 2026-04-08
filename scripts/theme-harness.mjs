@@ -30,6 +30,8 @@ import {
   benchmarkRunStub,
   scaffoldBenchmarkPack,
   validateBenchmarkPackCommand,
+  validatePromotionPacketCommand,
+  validateShadowAdoptionCommand,
 } from "./harness-benchmark-lib.mjs";
 import { promoteDurableContext } from "./promote-durable-context.mjs";
 import { evaluatePlanMarkdown } from "./theme-harness-review-core.mjs";
@@ -448,6 +450,18 @@ export function benchmarkValidate({
   return validateBenchmarkPackCommand({ packPath });
 }
 
+export function benchmarkValidatePromotionPacket({
+  filePath,
+} = {}) {
+  return validatePromotionPacketCommand({ filePath });
+}
+
+export function benchmarkValidateShadowAdoption({
+  filePath,
+} = {}) {
+  return validateShadowAdoptionCommand({ filePath });
+}
+
 export function benchmarkRun({
   packPath,
 } = {}) {
@@ -593,6 +607,34 @@ function parseCommandLine() {
         },
       };
     }
+    case "benchmark-validate-promotion-packet": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          file: { type: "string" },
+        },
+      });
+      return {
+        command,
+        values: {
+          filePath: values.file,
+        },
+      };
+    }
+    case "benchmark-validate-shadow-adoption": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          file: { type: "string" },
+        },
+      });
+      return {
+        command,
+        values: {
+          filePath: values.file,
+        },
+      };
+    }
     default:
       throw new HarnessError("Unknown theme-harness command.", {
         status: "action_required",
@@ -631,6 +673,12 @@ export async function main() {
       break;
     case "benchmark-run":
       payload = benchmarkRun(values);
+      break;
+    case "benchmark-validate-promotion-packet":
+      payload = benchmarkValidatePromotionPacket(values);
+      break;
+    case "benchmark-validate-shadow-adoption":
+      payload = benchmarkValidateShadowAdoption(values);
       break;
     default:
       throw new HarnessError("Unknown theme-harness command.", {

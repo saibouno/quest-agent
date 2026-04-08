@@ -9,6 +9,8 @@ import {
   benchmarkRun,
   benchmarkScaffold,
   benchmarkValidate,
+  benchmarkValidatePromotionPacket,
+  benchmarkValidateShadowAdoption,
   main,
   scaffoldCloseout,
   reviewPlan,
@@ -16,6 +18,13 @@ import {
   setStatus,
   verifyTheme,
 } from "../scripts/theme-harness.mjs";
+import {
+  deriveAdoptionOperationId,
+  derivePromotionPacketHash,
+  validatePromotionPacket,
+  validatePromotionPacketBody,
+  validateShadowAdoption,
+} from "../scripts/harness-benchmark-lib.mjs";
 import { evaluatePlanMarkdown } from "../scripts/theme-harness-review-core.mjs";
 import { recordAftercare, recordExplain, startTheme } from "../scripts/theme-ops.mjs";
 import { HarnessError, actionPayload, detectCanonicalRepoRoot, loadState, resolveCheckoutRoots } from "../scripts/theme-harness-lib.mjs";
@@ -134,6 +143,71 @@ const LEGACY_RETENTION_POLICY_KEYS = [
   "recent_window_hours",
   "keep_failed_runs",
 ];
+
+const GOLDEN_PROMOTION_PACKET_BODY = {
+  candidate_patch_ref: "  patch_sha256:abc  ",
+  candidate_commit_or_artifact_ref: "benchmark_candidate:test:candidate:abc",
+  benchmark_pack_hash: "pack-hash",
+  baseline_score: 0.5,
+  best_score: 0.8,
+  benchmark_delta: 0.3,
+  keep_discard_reason: "  kept_primary_score_improved  ",
+  verification_summary: [" verify: passed ", "", 7],
+  rollback_class: "simple_revert",
+  mutable_surface_tier: "prompt_only",
+  adoptable_patch_scope: "  same_repo_local_only_prompt_only  ",
+  protected_surface_diff_result: "clear",
+  target_repo_ref: "  cafe-agent-os  ",
+  target_worktree_ref: "  C:/tmp/cafe-agent-os  ",
+  source_refs: [" candidate_id:stable ", "", "benchmark_id:test", "candidate_id:stable", true],
+};
+
+const GOLDEN_PROMOTION_PACKET_HASH = "00ec2960c9893fa2764ff7252dc9b6040c078d285955538ff303db3170713d32";
+const GOLDEN_ADOPTION_OPERATION_ID = "90d41eb30806385890abe3fbb4e318ead121fc5a1603e0d072479f2bfaff3115";
+
+const GOLDEN_PENDING_SHADOW_ADOPTION = {
+  adoption_operation_id: GOLDEN_ADOPTION_OPERATION_ID,
+  promotion_packet_hash: GOLDEN_PROMOTION_PACKET_HASH,
+  active_policy: "preview_only",
+  counterfactual_eval: true,
+  shadow_ruleset_version: "  shadow_adopt_v1  ",
+  state: "pending_review",
+  would_auto_cut: true,
+  would_auto_finalize: false,
+  eligibility_reason_codes: [" remote_policy_not_local_only ", "", "remote_policy_not_local_only"],
+  promotion_packet_ref: "  runtime/promotion_packets/example.json  ",
+};
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createGoldenPromotionPacketEnvelope(body = GOLDEN_PROMOTION_PACKET_BODY) {
+  return {
+    body: cloneJson(body),
+    promotion_packet_hash: GOLDEN_PROMOTION_PACKET_HASH,
+    adoption_operation_id: GOLDEN_ADOPTION_OPERATION_ID,
+  };
+}
+
+function createGoldenReviewedShadowAdoption() {
+  return {
+    ...cloneJson(GOLDEN_PENDING_SHADOW_ADOPTION),
+    state: "reviewed",
+    review_revision: 2,
+    supersedes_review_ref: "  runtime/shadow_reviews/review-1.json  ",
+    human_disposition: "auto_cut_theme",
+    disposition_match: true,
+    mismatch_class: "none",
+    reviewed_at: " 2026-04-08T09:00:00+09:00  ",
+    reviewed_by: "  acceptance-reviewer  ",
+  };
+}
+
+function writeJsonArtifact(filePath, value, { indent = 2, suffix = "\n" } = {}) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(value, null, indent)}${suffix}`, "utf8");
+}
 
 function confirmedBrief(slug) {
   return [
@@ -705,6 +779,296 @@ test("benchmark-validate computes the same hash across key order and formatting 
   const reordered = benchmarkValidate({ packPath: altPackPath });
 
   assert.equal(original.pack_hash, reordered.pack_hash);
+});
+
+test("promotion packet body canonicalization mirrors the V3 golden hash and operation id", () => {
+  const normalizedBody = validatePromotionPacketBody(cloneJson(GOLDEN_PROMOTION_PACKET_BODY));
+
+  assert.equal(normalizedBody.candidate_patch_ref, "  patch_sha256:abc  ");
+  assert.equal(normalizedBody.keep_discard_reason, "  kept_primary_score_improved  ");
+  assert.equal(normalizedBody.adoptable_patch_scope, "same_repo_local_only_prompt_only");
+  assert.equal(normalizedBody.target_repo_ref, "cafe-agent-os");
+  assert.equal(normalizedBody.target_worktree_ref, "C:/tmp/cafe-agent-os");
+  assert.deepEqual(normalizedBody.verification_summary, ["verify: passed", "7"]);
+  assert.deepEqual(normalizedBody.source_refs, ["candidate_id:stable", "benchmark_id:test", "true"]);
+  assert.equal(derivePromotionPacketHash(normalizedBody), GOLDEN_PROMOTION_PACKET_HASH);
+  assert.equal(
+    deriveAdoptionOperationId(normalizedBody.target_repo_ref, GOLDEN_PROMOTION_PACKET_HASH),
+    GOLDEN_ADOPTION_OPERATION_ID,
+  );
+});
+
+test("promotion packet validation is stable across envelope key order and formatting changes", () => {
+  const packet = createGoldenPromotionPacketEnvelope();
+  const reorderedPacket = JSON.parse(`{
+    "adoption_operation_id": "${packet.adoption_operation_id}",
+    "body": {
+      "target_worktree_ref": "  C:/tmp/cafe-agent-os  ",
+      "target_repo_ref": "  cafe-agent-os  ",
+      "verification_summary": [ " verify: passed ", "", 7 ],
+      "source_refs": [ " candidate_id:stable ", "", "benchmark_id:test", "candidate_id:stable", true ],
+      "protected_surface_diff_result": "clear",
+      "adoptable_patch_scope": "  same_repo_local_only_prompt_only  ",
+      "mutable_surface_tier": "prompt_only",
+      "rollback_class": "simple_revert",
+      "keep_discard_reason": "  kept_primary_score_improved  ",
+      "benchmark_delta": 0.3,
+      "best_score": 0.8,
+      "baseline_score": 0.5,
+      "benchmark_pack_hash": "pack-hash",
+      "candidate_commit_or_artifact_ref": "benchmark_candidate:test:candidate:abc",
+      "candidate_patch_ref": "  patch_sha256:abc  "
+    },
+    "promotion_packet_hash": "${packet.promotion_packet_hash}"
+  }
+
+`);
+
+  const original = validatePromotionPacket(packet);
+  const reordered = validatePromotionPacket(reorderedPacket);
+
+  assert.equal(original.promotion_packet_hash, GOLDEN_PROMOTION_PACKET_HASH);
+  assert.equal(reordered.promotion_packet_hash, GOLDEN_PROMOTION_PACKET_HASH);
+  assert.equal(original.adoption_operation_id, GOLDEN_ADOPTION_OPERATION_ID);
+  assert.equal(reordered.adoption_operation_id, GOLDEN_ADOPTION_OPERATION_ID);
+  assert.deepEqual(original, reordered);
+});
+
+test("promotion packet validation rejects envelope hash mismatches", () => {
+  const packet = createGoldenPromotionPacketEnvelope();
+  packet.promotion_packet_hash = "deadbeef";
+
+  assert.throws(
+    () => validatePromotionPacket(packet),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "promotion_packet_hash",
+  );
+});
+
+test("promotion packet validation rejects envelope operation id mismatches", () => {
+  const packet = createGoldenPromotionPacketEnvelope();
+  packet.adoption_operation_id = "deadbeef";
+
+  assert.throws(
+    () => validatePromotionPacket(packet),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "adoption_operation_id",
+  );
+});
+
+test("promotion packet validation rejects unknown nested fields", () => {
+  const packet = createGoldenPromotionPacketEnvelope();
+  packet.body.unexpected_nested = { nope: true };
+
+  assert.throws(
+    () => validatePromotionPacket(packet),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "promotion_packet.body"
+      && error.details.unknown_keys.includes("unexpected_nested"),
+  );
+});
+
+test("shadow adoption validation passes for pending_review records", () => {
+  const normalizedShadowAdoption = validateShadowAdoption(cloneJson(GOLDEN_PENDING_SHADOW_ADOPTION));
+
+  assert.equal(normalizedShadowAdoption.adoption_operation_id, GOLDEN_ADOPTION_OPERATION_ID);
+  assert.equal(normalizedShadowAdoption.shadow_ruleset_version, "shadow_adopt_v1");
+  assert.equal(normalizedShadowAdoption.state, "pending_review");
+  assert.equal(normalizedShadowAdoption.promotion_packet_ref, "runtime/promotion_packets/example.json");
+  assert.deepEqual(normalizedShadowAdoption.eligibility_reason_codes, ["remote_policy_not_local_only"]);
+  assert.equal(Object.hasOwn(normalizedShadowAdoption, "review_revision"), false);
+});
+
+test("shadow adoption validation passes for reviewed records", () => {
+  const normalizedShadowAdoption = validateShadowAdoption(createGoldenReviewedShadowAdoption());
+
+  assert.equal(normalizedShadowAdoption.state, "reviewed");
+  assert.equal(normalizedShadowAdoption.review_revision, 2);
+  assert.equal(normalizedShadowAdoption.supersedes_review_ref, "runtime/shadow_reviews/review-1.json");
+  assert.equal(normalizedShadowAdoption.human_disposition, "auto_cut_theme");
+  assert.equal(normalizedShadowAdoption.disposition_match, true);
+  assert.equal(normalizedShadowAdoption.mismatch_class, "none");
+  assert.equal(normalizedShadowAdoption.reviewed_at, "2026-04-08T09:00:00+09:00");
+  assert.equal(normalizedShadowAdoption.reviewed_by, "acceptance-reviewer");
+});
+
+test("shadow adoption validation rejects unknown reason codes", () => {
+  const shadowAdoption = cloneJson(GOLDEN_PENDING_SHADOW_ADOPTION);
+  shadowAdoption.eligibility_reason_codes = ["not_supported_here"];
+
+  assert.throws(
+    () => validateShadowAdoption(shadowAdoption),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "shadow_adoption.eligibility_reason_codes[0]",
+  );
+});
+
+test("shadow adoption validation rejects would_auto_finalize without would_auto_cut", () => {
+  const shadowAdoption = cloneJson(GOLDEN_PENDING_SHADOW_ADOPTION);
+  shadowAdoption.would_auto_cut = false;
+  shadowAdoption.would_auto_finalize = true;
+
+  assert.throws(
+    () => validateShadowAdoption(shadowAdoption),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "shadow_adoption.would_auto_finalize",
+  );
+});
+
+test("shadow adoption validation rejects pending_review records with reviewed fields", () => {
+  const shadowAdoption = cloneJson(GOLDEN_PENDING_SHADOW_ADOPTION);
+  shadowAdoption.review_revision = 0;
+
+  assert.throws(
+    () => validateShadowAdoption(shadowAdoption),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && Array.isArray(error.details.reviewed_fields)
+      && error.details.reviewed_fields.includes("review_revision"),
+  );
+});
+
+test("shadow adoption validation rejects reviewed records missing reviewed-only fields", () => {
+  const shadowAdoption = createGoldenReviewedShadowAdoption();
+  delete shadowAdoption.reviewed_by;
+
+  assert.throws(
+    () => validateShadowAdoption(shadowAdoption),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "shadow_adoption.reviewed_by",
+  );
+});
+
+test("shadow adoption validation rejects malformed lineage fields", () => {
+  const shadowAdoption = createGoldenReviewedShadowAdoption();
+  shadowAdoption.review_revision = 0;
+
+  assert.throws(
+    () => validateShadowAdoption(shadowAdoption),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "shadow_adoption.review_revision",
+  );
+});
+
+test("shadow adoption validation rejects unknown nested fields", () => {
+  const shadowAdoption = cloneJson(GOLDEN_PENDING_SHADOW_ADOPTION);
+  shadowAdoption.unexpected_nested = { nope: true };
+
+  assert.throws(
+    () => validateShadowAdoption(shadowAdoption),
+    (error) => error instanceof HarnessError
+      && error.status === "action_required"
+      && error.details.field === "shadow_adoption"
+      && error.details.unknown_keys.includes("unexpected_nested"),
+  );
+});
+
+test("benchmark-validate-promotion-packet returns normalized V3 packet details", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-promotion-packet");
+  const packetPath = path.join(repoRoot, "fixtures", "promotion-packet.json");
+  writeJsonArtifact(packetPath, createGoldenPromotionPacketEnvelope(), { indent: 2, suffix: "\n\n" });
+
+  const result = benchmarkValidatePromotionPacket({ filePath: packetPath });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.promotion_packet_hash, GOLDEN_PROMOTION_PACKET_HASH);
+  assert.equal(result.adoption_operation_id, GOLDEN_ADOPTION_OPERATION_ID);
+  assert.equal(result.normalized_promotion_packet.body.target_repo_ref, "cafe-agent-os");
+});
+
+test("benchmark-validate-shadow-adoption returns normalized V3 shadow details", (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-shadow-adoption");
+  const shadowPath = path.join(repoRoot, "fixtures", "shadow-adoption.json");
+  writeJsonArtifact(shadowPath, createGoldenReviewedShadowAdoption(), { indent: 2, suffix: "\n" });
+
+  const result = benchmarkValidateShadowAdoption({ filePath: shadowPath });
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.adoption_operation_id, GOLDEN_ADOPTION_OPERATION_ID);
+  assert.equal(result.state, "reviewed");
+  assert.equal(result.shadow_ruleset_version, "shadow_adopt_v1");
+  assert.equal(result.normalized_shadow_adoption.review_revision, 2);
+});
+
+test("benchmark-validate-promotion-packet invalid input uses HarnessError action_required flow", async (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-promotion-packet-cli");
+  const packetPath = path.join(repoRoot, "fixtures", "promotion-packet-invalid.json");
+  const invalidPacket = createGoldenPromotionPacketEnvelope();
+  invalidPacket.promotion_packet_hash = "deadbeef";
+  writeJsonArtifact(packetPath, invalidPacket, { indent: 2, suffix: "\n" });
+
+  const originalArgv = process.argv;
+  let exitCode = 0;
+  let payload = null;
+
+  process.argv = [
+    process.execPath,
+    path.join(CURRENT_REPO_ROOT, "scripts", "theme-harness.mjs"),
+    "benchmark-validate-promotion-packet",
+    "--file",
+    packetPath,
+  ];
+
+  try {
+    await main();
+    assert.fail("benchmark-validate-promotion-packet should surface an action_required error through the CLI flow.");
+  } catch (error) {
+    if (!(error instanceof HarnessError)) {
+      throw error;
+    }
+    payload = actionPayload({ status: error.status, message: error.message, details: error.details });
+    exitCode = 1;
+  } finally {
+    process.argv = originalArgv;
+  }
+
+  assert.equal(exitCode, 1);
+  assert.equal(payload.status, "action_required");
+  assert.equal(payload.field, "promotion_packet_hash");
+});
+
+test("benchmark-validate-shadow-adoption invalid input uses HarnessError action_required flow", async (t) => {
+  const repoRoot = createFixtureRepo(t, "benchmark-validate-shadow-adoption-cli");
+  const shadowPath = path.join(repoRoot, "fixtures", "shadow-adoption-invalid.json");
+  const invalidShadowAdoption = createGoldenReviewedShadowAdoption();
+  invalidShadowAdoption.mismatch_class = "soft_mismatch";
+  writeJsonArtifact(shadowPath, invalidShadowAdoption, { indent: 2, suffix: "\n" });
+
+  const originalArgv = process.argv;
+  let exitCode = 0;
+  let payload = null;
+
+  process.argv = [
+    process.execPath,
+    path.join(CURRENT_REPO_ROOT, "scripts", "theme-harness.mjs"),
+    "benchmark-validate-shadow-adoption",
+    "--file",
+    shadowPath,
+  ];
+
+  try {
+    await main();
+    assert.fail("benchmark-validate-shadow-adoption should surface an action_required error through the CLI flow.");
+  } catch (error) {
+    if (!(error instanceof HarnessError)) {
+      throw error;
+    }
+    payload = actionPayload({ status: error.status, message: error.message, details: error.details });
+    exitCode = 1;
+  } finally {
+    process.argv = originalArgv;
+  }
+
+  assert.equal(exitCode, 1);
+  assert.equal(payload.status, "action_required");
+  assert.equal(payload.field, "shadow_adoption.mismatch_class");
 });
 
 test("benchmark-run direct invocation uses HarnessError action_required flow", (t) => {
