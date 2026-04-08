@@ -114,42 +114,6 @@ function benchmarkPackPath(repoRoot, packId) {
   return path.join(repoRoot, "config", "harness_benchmark_packs", `${packId}.json`);
 }
 
-function portfolioEnvelopeSection({
-  slug,
-  affectedSurfaces = [`path:src/${slug}/**`],
-  expectedArtifacts = ["artifact:code-module"],
-  prerequisites = ["foundation:fixture-contract"],
-  requiredResources = [],
-  planId = `plan-${slug}`,
-  planRef = `theme:${slug}`,
-  planVersion = "1",
-  parentGoal = `goal:${slug}`,
-  surfaceConfidence = "confidence:medium",
-} = {}) {
-  const envelope = {
-    plan_ref: planRef,
-    plan_id: planId,
-    plan_version: planVersion,
-    parent_goal: parentGoal,
-    affected_surfaces: affectedSurfaces,
-    surface_confidence: surfaceConfidence,
-    expected_artifacts: expectedArtifacts,
-    prerequisites,
-  };
-  if (requiredResources.length) {
-    envelope.required_resources = requiredResources;
-  }
-
-  return [
-    "## Portfolio Coordination Envelope",
-    "",
-    "```json",
-    JSON.stringify(envelope, null, 2),
-    "```",
-    "",
-  ].join("\n");
-}
-
 const SHARED_BUDGET_KEYS = [
   "max_attempts",
   "max_no_improve_streak",
@@ -281,7 +245,6 @@ function confirmedBrief(slug) {
     "",
     "- Tests run in a temporary fixture repo.",
     "",
-    portfolioEnvelopeSection({ slug }),
   ].join("\n");
 }
 
@@ -437,89 +400,6 @@ test("review-plan records pass and revise_required results", (t) => {
   assert.equal(state.harness.workflow_status, "plan_drafted");
   assert.equal(state.harness.review_results.result, "revise_required");
   assert.ok(state.harness.review_results.finding_codes.includes("missing_approval_boundary"));
-});
-
-test("review-plan saves a normalized portfolio envelope and invalidates the saved summary on every pass", (t) => {
-  const repoRoot = createFixtureRepo(t, "review-portfolio");
-  const slug = "review-portfolio";
-  startFixtureTheme(repoRoot, slug);
-  scaffoldPlan({ repoRoot, slug });
-
-  const first = reviewPlan({ repoRoot, slug });
-  assert.equal(first.status, "pass");
-
-  let state = loadState(repoRoot, slug);
-  assert.equal(state.portfolio_coordination.envelope.plan_ref, `theme:${slug}`);
-  assert.equal(state.portfolio_coordination.summary.summary_valid, false);
-  assert.equal(state.portfolio_coordination.summary.coordination_status, "not_evaluated");
-  assert.equal(state.portfolio_coordination.summary.status_reason, "portfolio_refresh_required");
-  assert.equal(state.portfolio_coordination.summary.envelope_fingerprint.length > 0, true);
-
-  const persistedFingerprint = state.portfolio_coordination.summary.envelope_fingerprint;
-  state.portfolio_coordination.summary = {
-    coordination_status: "merge_candidate",
-    status_reason: "path_overlap_same_artifact_class",
-    primary_relation_key: "relation:stale",
-    triggering_relation_keys: ["relation:stale"],
-    related_plan_refs: ["theme:other"],
-    portfolio_id: "quest-agent-theme-portfolio",
-    portfolio_version: "1",
-    last_refreshed_at: "2026-04-08T00:00:00.000Z",
-    summary_valid: true,
-    envelope_fingerprint: persistedFingerprint,
-    summary_basis_fingerprint: "stale-basis",
-    shared_contract_ref: "quest-agent:portfolio-coordination/v1",
-    advisory_notes: ["stale advisory"],
-  };
-  writeFileSync(path.join(repoRoot, "output", "theme_ops", `${slug}.json`), `${JSON.stringify(state, null, 2)}\n`, "utf8");
-
-  const second = reviewPlan({ repoRoot, slug });
-  assert.equal(second.status, "pass");
-
-  state = loadState(repoRoot, slug);
-  assert.equal(state.portfolio_coordination.summary.summary_valid, false);
-  assert.equal(state.portfolio_coordination.summary.coordination_status, "not_evaluated");
-  assert.equal(state.portfolio_coordination.summary.status_reason, "portfolio_refresh_required");
-  assert.equal(state.portfolio_coordination.summary.primary_relation_key, "");
-  assert.deepEqual(state.portfolio_coordination.summary.triggering_relation_keys, []);
-  assert.deepEqual(state.portfolio_coordination.summary.related_plan_refs, []);
-  assert.deepEqual(state.portfolio_coordination.summary.advisory_notes, []);
-  assert.equal(state.portfolio_coordination.summary.envelope_fingerprint, persistedFingerprint);
-});
-
-test("review-plan fails on invalid portfolio coordination envelope variants", (t) => {
-  const repoRoot = createFixtureRepo(t, "review-portfolio-invalid");
-  const slug = "review-portfolio-invalid";
-  startFixtureTheme(repoRoot, slug);
-  scaffoldPlan({ repoRoot, slug });
-
-  const planPath = path.join(repoRoot, "output", "theme_ops", `${slug}-plan.md`);
-  const basePlan = readFileSync(planPath, "utf8");
-
-  const missingRequired = basePlan.replace(/"plan_id": "plan-review-portfolio-invalid"/u, "\"plan_id\": \"\"");
-  writeFileSync(planPath, missingRequired, "utf8");
-  let result = reviewPlan({ repoRoot, slug });
-  assert.equal(result.status, "revise_required");
-  let state = loadState(repoRoot, slug);
-  assert.ok(state.harness.review_results.finding_codes.includes("portfolio_coordination_missing_required_field"));
-
-  const invalidNamespace = basePlan.replace(/"expected_artifacts": \[\n\s+"artifact:code-module"\n\s+\]/u, "\"expected_artifacts\": [\n    \"artifact_class:code-module\"\n  ]");
-  writeFileSync(planPath, invalidNamespace, "utf8");
-  state.harness.workflow_status = "plan_drafted";
-  writeFileSync(path.join(repoRoot, "output", "theme_ops", `${slug}.json`), `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  result = reviewPlan({ repoRoot, slug });
-  assert.equal(result.status, "revise_required");
-  state = loadState(repoRoot, slug);
-  assert.ok(state.harness.review_results.finding_codes.includes("portfolio_coordination_invalid_namespace"));
-
-  const rawToken = basePlan.replace(/"prerequisites": \[\n\s+"foundation:fixture-contract"\n\s+\]/u, "\"prerequisites\": [\n    \"fixture-contract\"\n  ]");
-  writeFileSync(planPath, rawToken, "utf8");
-  state.harness.workflow_status = "plan_drafted";
-  writeFileSync(path.join(repoRoot, "output", "theme_ops", `${slug}.json`), `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  result = reviewPlan({ repoRoot, slug });
-  assert.equal(result.status, "revise_required");
-  state = loadState(repoRoot, slug);
-  assert.ok(state.harness.review_results.finding_codes.includes("portfolio_coordination_raw_token"));
 });
 
 test("review evaluator matches merge contract golden cases", () => {

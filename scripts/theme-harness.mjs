@@ -15,7 +15,6 @@ import {
   hasBriefStubSentinel,
   loadState,
   nowIso,
-  parseMarkdownSections,
   printJson,
   pushRecentDecision,
   readText,
@@ -27,14 +26,6 @@ import {
   verifyWorkflowStatus,
   writeText,
 } from "./theme-harness-lib.mjs";
-import {
-  PORTFOLIO_COORDINATION_SECTION,
-  PORTFOLIO_SHARED_CONTRACT_REF,
-  computePortfolioEnvelopeFingerprint,
-  extractPortfolioEnvelopeJson,
-  invalidatePortfolioSummary,
-  normalizePortfolioCoordinationEnvelope,
-} from "./theme-portfolio-contract.mjs";
 import {
   benchmarkRunStub,
   scaffoldBenchmarkPack,
@@ -159,33 +150,16 @@ export function reviewPlan({
     });
   }
 
-  const planText = readText(state.harness.plan_path);
-  const reviewResult = evaluatePlanMarkdown(planText);
+  const reviewResult = evaluatePlanMarkdown(readText(state.harness.plan_path));
   state.harness.review_results = reviewResult;
   if (reviewResult.result === "pass") {
-    const sections = parseMarkdownSections(planText);
-    const normalizedEnvelope = normalizePortfolioCoordinationEnvelope(
-      extractPortfolioEnvelopeJson(sections[PORTFOLIO_COORDINATION_SECTION] || ""),
-    );
-    const envelopeFingerprint = computePortfolioEnvelopeFingerprint(normalizedEnvelope);
-    state.portfolio_coordination.envelope = normalizedEnvelope;
-    state.portfolio_coordination.summary = invalidatePortfolioSummary(
-      state.portfolio_coordination.summary,
-      {
-        envelopeFingerprint,
-        sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
-      },
-    );
     state.harness.workflow_status = "plan_reviewed";
     updateHarnessMetadata(state, {
       milestone: "plan_reviewed",
       nextAction: `Run \`node scripts/theme-harness.mjs set-status --slug ${slug} --to implementing\`.`,
       updatedBy,
     });
-    pushRecentDecision(
-      state,
-      "Plan review passed and invalidated the saved portfolio summary until the next portfolio refresh.",
-    );
+    pushRecentDecision(state, "Plan review passed with no deterministic findings.");
   } else {
     state.harness.workflow_status = "plan_drafted";
     updateHarnessMetadata(state, {
@@ -208,8 +182,6 @@ export function reviewPlan({
       review_path: state.harness.review_path,
       workflow_status: state.harness.workflow_status,
       review_results: reviewResult,
-      portfolio_summary_valid: state.portfolio_coordination.summary.summary_valid,
-      portfolio_envelope_fingerprint: state.portfolio_coordination.summary.envelope_fingerprint,
     },
   });
 }
