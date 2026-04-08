@@ -63,8 +63,10 @@
   - `node scripts/theme-ops.mjs aftercare --slug <slug> ...`
   - `node scripts/theme-ops.mjs explain --slug <slug> ...`
   - `node scripts/theme-ops.mjs close --slug <slug>`
+  - `node scripts/theme-portfolio-orchestrator.mjs refresh`
 - Read-only:
   - `node scripts/theme-ops.mjs status --slug <slug>` may run from the root checkout or the theme worktree, but it must still report the canonical repo root and the owner boundary above.
+  - `node scripts/theme-portfolio-orchestrator.mjs status` reads the latest repo-wide advisory artifact only.
 
 ## Command Behavior
 
@@ -77,6 +79,7 @@
 - `node scripts/theme-ops.mjs status --slug <slug>`
   - Reports the canonical repo root, owner boundary, saved checks, current workflow status, `default` / `exempt` / `legacy` harness guidance, and the shared `merge_gate_*` payload.
   - Surfaces the shared `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action` fields.
+  - Surfaces the advisory-only portfolio summary fields from saved theme state and masks them to `not_evaluated / portfolio_refresh_required` whenever refresh is missing, summary drift is present, or the theme is no longer portfolio-eligible.
   - Uses guidance-only labels such as `not_started`, `not_applicable`, and `legacy` when no harness workflow state exists yet.
 - `node scripts/theme-harness.mjs scaffold-plan --slug <slug>`
   - Uses the canonical `brief_path` from theme state when `--brief-path` is omitted.
@@ -121,6 +124,12 @@
   - Must run from the canonical repo root.
   - `merge_policy=manual` keeps the existing human merge checkpoint.
   - `merge_policy=auto_after_green` uses `close --wait-for-merge` to finish the local merge-and-cleanup path once the shared merge gate is ready.
+- `node scripts/theme-portfolio-orchestrator.mjs refresh`
+  - Aggregates only non-terminal themes that already have a saved portfolio coordination envelope.
+  - Writes the repo-wide advisory artifact to `output/theme_ops/portfolio/latest.json`.
+  - Updates saved portfolio summaries in theme state without changing closeout readiness, merge-gate behavior, or benchmark adapter-shell semantics.
+- `node scripts/theme-portfolio-orchestrator.mjs status`
+  - Reads the latest advisory artifact and repo-local diagnostics from `extensions.quest-agent.refresh_diagnostics`.
 
 ## Benchmark Adapter Shell
 
@@ -154,6 +163,9 @@
 - Every confirmed brief and scaffolded plan must make the publish / handoff boundary explicit so local closeout is not confused with remote push / PR work.
 - `status` and `close` expose the shared routine merge contract fields: `merge_policy`, `current_workflow_status`, `merge_gate_required`, `merge_gate_ready`, `merge_gate_reason`, and `merge_gate_next_action`.
 - `status` and `close` also expose the shared durable-context fields: `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action`.
+- Portfolio coordination stays advisory-only in this adopter v1.
+- `global_execution_lanes[]` is a display / triage bucket only and must not be interpreted as a scheduler gate, finalize permission, or merge gate.
+- Portfolio refresh must not change `close`, `scaffold-closeout`, `close --wait-for-merge`, or benchmark adapter-shell behavior.
 - `approved` and `rejected` remain human-only workflow states.
 - Durable-context promotion is repo-local to `explain -> scaffold-closeout` in v1, with `scripts/promote-durable-context.mjs` as the helper and troubleshooting entrypoint.
 - Generated harness artifacts are scratch-only under `output/theme_ops/`.

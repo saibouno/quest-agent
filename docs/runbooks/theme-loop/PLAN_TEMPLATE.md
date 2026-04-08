@@ -38,3 +38,7 @@ Use this template through `node scripts/theme-harness.mjs scaffold-plan --slug <
 ## Assumptions
 
 {{ASSUMPTIONS}}
+
+## Portfolio Coordination Envelope
+
+{{PORTFOLIO_COORDINATION_ENVELOPE}}

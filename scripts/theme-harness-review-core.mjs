@@ -1,6 +1,10 @@
 import { parseMarkdownSections, readSummaryField } from "./theme-harness-lib.mjs";
+import {
+  PORTFOLIO_COORDINATION_SECTION,
+  validatePortfolioEnvelopeSection,
+} from "./theme-portfolio-contract.mjs";
 
-export const CHECKLIST_VERSION = 3;
+export const CHECKLIST_VERSION = 4;
 
 function readPublishBoundary(summarySection) {
   return readSummaryField(summarySection, "Publish / handoff boundary")
@@ -100,6 +104,19 @@ const CHECKS = [
     },
     failure: "Test plan does not contain an explicit verification command.",
   },
+  {
+    item_id: "portfolio_coordination_envelope_valid",
+    label: "portfolio coordination envelope valid",
+    finding_code: "",
+    passes(sections) {
+      const result = validatePortfolioEnvelopeSection(sections[PORTFOLIO_COORDINATION_SECTION] || "");
+      return result.ok;
+    },
+    failure(sections) {
+      const result = validatePortfolioEnvelopeSection(sections[PORTFOLIO_COORDINATION_SECTION] || "");
+      return result.message || "Portfolio coordination envelope is invalid.";
+    },
+  },
 ];
 
 export function looksOverscopedV1Plan(sections) {
@@ -135,14 +152,21 @@ export function evaluatePlanMarkdown(markdown) {
 
   for (const item of CHECKS) {
     const passed = Boolean(item.passes(sections, normalized));
-    if (!passed && item.finding_code) {
-      findingCodes.push(item.finding_code);
+    if (!passed) {
+      if (item.finding_code) {
+        findingCodes.push(item.finding_code);
+      } else if (item.item_id === "portfolio_coordination_envelope_valid") {
+        const result = validatePortfolioEnvelopeSection(sections[PORTFOLIO_COORDINATION_SECTION] || "");
+        if (result.finding_code) {
+          findingCodes.push(result.finding_code);
+        }
+      }
     }
     checklistResults.push({
       item_id: item.item_id,
       label: item.label,
       result: passed ? "pass" : "fail",
-      message: passed ? "" : item.failure,
+      message: passed ? "" : typeof item.failure === "function" ? item.failure(sections, normalized) : item.failure,
     });
   }
 

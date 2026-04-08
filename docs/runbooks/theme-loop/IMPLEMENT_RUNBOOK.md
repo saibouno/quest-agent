@@ -17,8 +17,10 @@ Use this runbook when a theme should follow the minimal harness loop.
   - `node scripts/theme-ops.mjs aftercare --slug <slug> ...`
   - `node scripts/theme-ops.mjs explain --slug <slug> ...`
   - `node scripts/theme-ops.mjs close --slug <slug>`
+  - `node scripts/theme-portfolio-orchestrator.mjs refresh`
 - Read-only:
   - `node scripts/theme-ops.mjs status --slug <slug>` may run from the theme worktree, but it should report the canonical repo root and the owner boundary above.
+  - `node scripts/theme-portfolio-orchestrator.mjs status` reads the latest advisory-only portfolio artifact.
 
 ## Standard Order
 
@@ -39,6 +41,8 @@ Use this runbook when a theme should follow the minimal harness loop.
 12. from the root repo checkout, run `node scripts/theme-ops.mjs close --slug <slug>`
    - `merge_policy=manual` keeps the existing human merge checkpoint.
    - `merge_policy=auto_after_green` should use `node scripts/theme-ops.mjs close --slug <slug> --wait-for-merge` once the merge gate is ready.
+13. when repo-wide advisory visibility matters, run `node scripts/theme-portfolio-orchestrator.mjs refresh` from the root checkout
+   - `node scripts/theme-portfolio-orchestrator.mjs status` reads the latest artifact without changing theme state.
 
 ## Verification Reality
 
@@ -64,3 +68,5 @@ Use this runbook when a theme should follow the minimal harness loop.
 - `discard`, `remote_only_reference`, explicit exempt themes, and legacy themes should not be shown as active default themes.
 - `auto_after_green` is only for bounded routine themes and requires `rollback_class=simple_revert`.
 - `close` keeps the manual lane as a readiness command and lets the routine lane finish eligible local merge-and-cleanup work with `--wait-for-merge`.
+- Portfolio coordination is advisory-only in this adopter v1.
+- The repo-wide artifact and `global_execution_lanes[]` are read surfaces for triage only. They do not block closeout readiness, merge gates, or benchmark adapter-shell commands.

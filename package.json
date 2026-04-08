@@ -12,7 +12,7 @@
                     "lint":  "eslint . --max-warnings=0",
                     "typecheck":  "tsc --noEmit",
                     "guardrails":  "node scripts/ops-guardrails.mjs",
-                    "harness:test:noprofile":  "cmd /d /s /c \"node --test --experimental-test-isolation=none tests/theme-harness.test.mjs tests/theme-ops.test.mjs tests/durable-context.test.mjs tests/dependency-guardrails.test.mjs\"",
+                    "harness:test:noprofile":  "cmd /d /s /c \"node --test --experimental-test-isolation=none tests/theme-harness.test.mjs tests/theme-portfolio-orchestrator.test.mjs tests/theme-ops.test.mjs tests/durable-context.test.mjs tests/dependency-guardrails.test.mjs\"",
                     "dogfood:backup:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-backup.ps1\"",
                     "dogfood:restore:check:noprofile":  "cmd /d /s /c \"powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dogfood-restore-check.ps1\"",
                     "lint:noprofile":  "cmd /d /s /c \"node scripts/lint-noprofile.mjs\"",
