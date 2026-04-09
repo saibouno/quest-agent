@@ -37,6 +37,7 @@ import {
   writeText,
 } from "./theme-harness-lib.mjs";
 import { portfolioSummaryDisplay } from "./theme-portfolio-contract.mjs";
+import { evaluateWorkflowStateBridgeDecision } from "./theme-workflow-state-bridge.mjs";
 
 const REPO_ROOT = getRepoRootFromImport(import.meta.url);
 
@@ -75,6 +76,16 @@ function runGit(repoRoot, args, { cwd = repoRoot } = {}) {
 function gitStdout(repoRoot, args, execGit = runGit, cwd = repoRoot) {
   const result = execGit(repoRoot, args, { cwd });
   return String(result?.stdout || "").trim();
+}
+
+function bridgeArtifactInput(targetPath, { includeText = false } = {}) {
+  const normalizedPath = String(targetPath || "").trim();
+  const artifactExists = Boolean(normalizedPath) && existsSync(normalizedPath);
+  return {
+    path: normalizedPath,
+    exists: artifactExists,
+    text: includeText && artifactExists ? readText(normalizedPath) : "",
+  };
 }
 
 const CONTEXT_PROMOTION_SUCCESS_STATES = new Set(["applied", "noop"]);
@@ -499,6 +510,24 @@ export function statusTheme({
   const guidance = determineGuidance(state);
   const mergeGate = mergeGatePayload(state);
   const portfolioSummary = portfolioSummaryDisplay(state, repoRoot);
+  const bridgeDecision = evaluateWorkflowStateBridgeDecision({
+    slug: state.slug,
+    harness_policy: state.harness_policy,
+    workflow_status: state.harness.workflow_status,
+    review_result: state.harness.review_results?.result,
+    plan_artifact: bridgeArtifactInput(state.harness.plan_path, { includeText: true }),
+    review_artifact: bridgeArtifactInput(state.harness.review_path),
+    closeout_artifact: bridgeArtifactInput(state.harness.closeout_path),
+    closeout_ready: closeoutIsReady(state),
+    portfolio_envelope_plan_id: state.portfolio_coordination?.envelope?.plan_id,
+    portfolio_summary: portfolioSummary.portfolio_summary_valid
+      ? {
+          coordination_status: portfolioSummary.portfolio_coordination_status,
+          status_reason: portfolioSummary.portfolio_status_reason,
+          shared_contract_ref: portfolioSummary.portfolio_shared_contract_ref,
+        }
+      : null,
+  });
 
   return actionPayload({
     status: "pass",
@@ -520,6 +549,7 @@ export function statusTheme({
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
       ...contextPromotionPayload(state),
+      bridge_decision: bridgeDecision,
       ...portfolioSummary,
       ...mergeGate,
     },
