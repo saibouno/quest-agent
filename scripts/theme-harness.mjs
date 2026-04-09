@@ -15,6 +15,7 @@ import {
   hasBriefStubSentinel,
   loadState,
   nowIso,
+  parseMarkdownSections,
   printJson,
   pushRecentDecision,
   readText,
@@ -26,6 +27,14 @@ import {
   verifyWorkflowStatus,
   writeText,
 } from "./theme-harness-lib.mjs";
+import {
+  PORTFOLIO_COORDINATION_SECTION,
+  PORTFOLIO_SHARED_CONTRACT_REF,
+  computePortfolioEnvelopeFingerprint,
+  extractPortfolioEnvelopeJson,
+  invalidatePortfolioSummary,
+  normalizePortfolioCoordinationEnvelope,
+} from "./theme-portfolio-contract.mjs";
 import {
   benchmarkRunStub,
   scaffoldBenchmarkPack,
@@ -50,18 +59,157 @@ function closeoutTemplatePath(repoRoot) {
   return path.join(repoRoot, "docs", "runbooks", "theme-loop", "CLOSEOUT_TEMPLATE.md");
 }
 
+function windowsPowerShellBinary() {
+  const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  const target = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return existsSync(target) ? target : "powershell.exe";
+}
+
+function tokenizeCommand(command) {
+  const tokens = [];
+  let current = "";
+  let quote = "";
+
+  for (const char of String(command || "").trim()) {
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/[|&;<>]/u.test(char)) {
+      return null;
+    }
+
+    if (/\s/u.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    return null;
+  }
+
+  if (current) {
+    tokens.push(current);
+  }
+
+  return tokens.length ? tokens : null;
+}
+
+function resolveNodeCliBinary(relativeSegments) {
+  const candidate = path.join(path.dirname(process.execPath), ...relativeSegments);
+  return existsSync(candidate) ? candidate : "";
+}
+
+function resolveWindowsDirectCommand(tokens) {
+  const [command, ...args] = tokens;
+  const normalized = String(command || "").toLowerCase();
+
+  if (normalized === "npm" || normalized === "npm.cmd") {
+    const npmCli = resolveNodeCliBinary(["node_modules", "npm", "bin", "npm-cli.js"]);
+    if (!npmCli) {
+      return null;
+    }
+    return {
+      file: process.execPath,
+      args: [npmCli, ...args],
+    };
+  }
+
+  if (normalized === "npx" || normalized === "npx.cmd") {
+    const npxCli = resolveNodeCliBinary(["node_modules", "npm", "bin", "npx-cli.js"]);
+    if (!npxCli) {
+      return null;
+    }
+    return {
+      file: process.execPath,
+      args: [npxCli, ...args],
+    };
+  }
+
+  if (/\.(cmd|bat)$/iu.test(normalized)) {
+    return null;
+  }
+
+  return {
+    file: command,
+    args,
+  };
+}
+
+export function planSavedCommandExecution(command, { platform = process.platform } = {}) {
+  const tokens = tokenizeCommand(command);
+  if (!tokens) {
+    return {
+      mode: "shell",
+      command,
+    };
+  }
+
+  const resolved = platform === "win32"
+    ? resolveWindowsDirectCommand(tokens)
+    : { file: tokens[0], args: tokens.slice(1) };
+
+  if (!resolved) {
+    return {
+      mode: "shell",
+      command,
+    };
+  }
+
+  return {
+    mode: "direct",
+    file: resolved.file,
+    args: resolved.args,
+  };
+}
+
+function runDirectCommand(command, cwd) {
+  const planned = planSavedCommandExecution(command);
+  if (planned.mode !== "direct") {
+    return null;
+  }
+
+  return spawnSync(planned.file, planned.args, {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+}
+
 function runSavedCommand(command, cwd) {
-  const result = process.platform === "win32"
-    ? spawnSync("cmd.exe", ["/d", "/s", "/c", command], {
+  const result = runDirectCommand(command, cwd) ?? (process.platform === "win32"
+    // Fall back to PowerShell without a profile when a saved command truly needs shell parsing.
+    ? spawnSync(windowsPowerShellBinary(), ["-NoProfile", "-NonInteractive", "-Command", command], {
         cwd,
         encoding: "utf8",
+        windowsHide: true,
       })
     : spawnSync(command, {
         cwd,
         shell: true,
         encoding: "utf8",
-      });
-  const stderr = [result.error?.message || "", String(result.stderr || "").trim()].filter(Boolean).join("\n");
+      }));
+  const stderrParts = [result.error?.message || "", String(result.stderr || "").trim()].filter(Boolean);
+  if (result.error?.code === "EPERM") {
+    stderrParts.push("Nested process execution was blocked by the current sandbox. Rerun verify outside the sandbox or allow the verify command to run with escalated permissions.");
+  }
+  const stderr = stderrParts.join("\n");
 
   return {
     command,
@@ -150,16 +298,33 @@ export function reviewPlan({
     });
   }
 
-  const reviewResult = evaluatePlanMarkdown(readText(state.harness.plan_path));
+  const planText = readText(state.harness.plan_path);
+  const reviewResult = evaluatePlanMarkdown(planText);
   state.harness.review_results = reviewResult;
   if (reviewResult.result === "pass") {
+    const sections = parseMarkdownSections(planText);
+    const normalizedEnvelope = normalizePortfolioCoordinationEnvelope(
+      extractPortfolioEnvelopeJson(sections[PORTFOLIO_COORDINATION_SECTION] || ""),
+    );
+    const envelopeFingerprint = computePortfolioEnvelopeFingerprint(normalizedEnvelope);
+    state.portfolio_coordination.envelope = normalizedEnvelope;
+    state.portfolio_coordination.summary = invalidatePortfolioSummary(
+      state.portfolio_coordination.summary,
+      {
+        envelopeFingerprint,
+        sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
+      },
+    );
     state.harness.workflow_status = "plan_reviewed";
     updateHarnessMetadata(state, {
       milestone: "plan_reviewed",
       nextAction: `Run \`node scripts/theme-harness.mjs set-status --slug ${slug} --to implementing\`.`,
       updatedBy,
     });
-    pushRecentDecision(state, "Plan review passed with no deterministic findings.");
+    pushRecentDecision(
+      state,
+      "Plan review passed and invalidated the saved portfolio summary until the next portfolio refresh.",
+    );
   } else {
     state.harness.workflow_status = "plan_drafted";
     updateHarnessMetadata(state, {
@@ -182,6 +347,8 @@ export function reviewPlan({
       review_path: state.harness.review_path,
       workflow_status: state.harness.workflow_status,
       review_results: reviewResult,
+      portfolio_summary_valid: state.portfolio_coordination.summary.summary_valid,
+      portfolio_envelope_fingerprint: state.portfolio_coordination.summary.envelope_fingerprint,
     },
   });
 }

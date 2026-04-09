@@ -36,6 +36,7 @@ import {
   summaryIsRecorded,
   writeText,
 } from "./theme-harness-lib.mjs";
+import { portfolioSummaryDisplay } from "./theme-portfolio-contract.mjs";
 
 const REPO_ROOT = getRepoRootFromImport(import.meta.url);
 
@@ -497,6 +498,7 @@ export function statusTheme({
   const state = loadState(repoRoot, slug);
   const guidance = determineGuidance(state);
   const mergeGate = mergeGatePayload(state);
+  const portfolioSummary = portfolioSummaryDisplay(state, repoRoot);
 
   return actionPayload({
     status: "pass",
@@ -518,6 +520,7 @@ export function statusTheme({
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
       ...contextPromotionPayload(state),
+      ...portfolioSummary,
       ...mergeGate,
     },
   });
@@ -715,6 +718,7 @@ export function closeTheme({
   const mergeGate = mergeGatePayload(state);
   const ready = guidance.policy === HARNESS_POLICY_DEFAULT ? closeoutIsReady(state) : true;
   const promotion = contextPromotionPayload(state);
+  const portfolioSummary = portfolioSummaryDisplay(state, repoRoot);
 
   if (waitForMerge && mergePolicyUsesWaitPath(state.merge_policy)) {
     if (!mergeGate.merge_gate_ready) {
@@ -732,6 +736,7 @@ export function closeTheme({
           plain_language_summary_recorded: summaryIsRecorded(state),
           closeout_ready: closeoutIsReady(state),
           ...promotion,
+          ...portfolioSummary,
           ready,
           wait_for_merge: true,
           next_action: mergeGate.merge_gate_next_action,
@@ -755,6 +760,7 @@ export function closeTheme({
         plain_language_summary_recorded: summaryIsRecorded(state),
         closeout_ready: closeoutIsReady(state),
         ...promotion,
+        ...portfolioSummary,
         ready,
         wait_for_merge: true,
         merged: true,
@@ -781,6 +787,7 @@ export function closeTheme({
       plain_language_summary_recorded: summaryIsRecorded(state),
       closeout_ready: closeoutIsReady(state),
       ...promotion,
+      ...portfolioSummary,
       ready,
       wait_for_merge: waitForMerge,
       next_action: waitForMerge && mergeGate.merge_gate_required

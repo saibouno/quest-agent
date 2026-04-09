@@ -67,6 +67,21 @@ function readyBrief(slug) {
     "- Done condition: Saved checks are green and closeout is ready.",
     "- Expected end state: merge_and_delete",
     "",
+    "## Portfolio Coordination Envelope",
+    "",
+    "```json",
+    JSON.stringify({
+      plan_ref: `theme:${slug}`,
+      plan_id: `plan-${slug}`,
+      plan_version: "1",
+      parent_goal: `goal:${slug}`,
+      affected_surfaces: [`path:src/${slug}/**`],
+      surface_confidence: "confidence:medium",
+      expected_artifacts: ["artifact:code-module"],
+      prerequisites: ["foundation:fixture-contract"],
+    }, null, 2),
+    "```",
+    "",
   ].join("\n");
 }
 
@@ -180,6 +195,9 @@ test("status distinguishes default, exempt, and legacy guidance", (t) => {
   assert.equal(defaultStatus.merge_policy, "manual");
   assert.equal(defaultStatus.merge_gate_required, false);
   assert.equal(defaultStatus.merge_gate_reason, "policy_manual");
+  assert.equal(defaultStatus.portfolio_coordination_status, "not_evaluated");
+  assert.equal(defaultStatus.portfolio_status_reason, "portfolio_refresh_required");
+  assert.equal(defaultStatus.portfolio_summary_valid, false);
 
   const exemptRoot = createFixtureRepo(t, "exempt");
   startTheme({
@@ -439,6 +457,98 @@ test("close reports action_required while context promotion is pending", (t) => 
   assert.equal(result.status, "action_required");
   assert.equal(result.context_promotion_state, "pending");
   assert.equal(result.ready, false);
+});
+
+test("status and close mask invalid portfolio summaries without blocking readiness", (t) => {
+  const repoRoot = createFixtureRepo(t, "portfolio-summary");
+  const slug = "portfolio-summary";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Portfolio Summary Theme",
+    slug,
+    requiredChecks: ["node -e \"process.exit(0)\""],
+    execGit: fakeGitExecutor,
+  });
+
+  const state = loadState(repoRoot, slug);
+  writeFileSync(state.brief_path, readyBrief(slug), "utf8");
+  writeFileSync(state.harness.review_path, "# review\n", "utf8");
+  writeFileSync(
+    state.harness.closeout_path,
+    [
+      "# Theme Closeout Draft",
+      "",
+      "## Known Issues / Follow-ups",
+      "",
+      "- none",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const rawStatePath = path.join(repoRoot, "output", "theme_ops", `${slug}.json`);
+  const rawState = JSON.parse(readFileSync(rawStatePath, "utf8"));
+  rawState.harness.workflow_status = "closeout_ready";
+  rawState.harness.review_results = { result: "pass" };
+  rawState.context_promotion.state = "noop";
+  rawState.context_promotion.reason = "no_durable_delta";
+  rawState.context_promotion.next_action = "Ready to close.";
+  rawState.harness.validation_runs = [
+    {
+      command: "node -e \"process.exit(0)\"",
+      status: "pass",
+      exit_code: 0,
+      ran_at: new Date().toISOString(),
+      stdout: "",
+      stderr: "",
+    },
+  ];
+  rawState.portfolio_coordination = {
+    envelope: {
+      plan_ref: `theme:${slug}`,
+      plan_id: `plan-${slug}`,
+      plan_version: "1",
+      parent_goal: `goal:${slug}`,
+      affected_surfaces: ["path:src/portfolio-summary/**"],
+      surface_confidence: "confidence:medium",
+      expected_artifacts: ["artifact:code-module"],
+      prerequisites: ["foundation:fixture-contract"],
+      required_resources: [],
+    },
+    summary: {
+      coordination_status: "merge_candidate",
+      status_reason: "path_overlap_same_artifact_class",
+      primary_relation_key: "relation:stale",
+      triggering_relation_keys: ["relation:stale"],
+      related_plan_refs: ["theme:other"],
+      portfolio_id: "quest-agent-theme-portfolio",
+      portfolio_version: "1",
+      last_refreshed_at: "2026-04-08T00:00:00.000Z",
+      summary_valid: false,
+      envelope_fingerprint: "abc123",
+      summary_basis_fingerprint: "def456",
+      shared_contract_ref: "quest-agent:portfolio-coordination/v1",
+      advisory_notes: ["stale advisory"],
+    },
+  };
+  writeFileSync(rawStatePath, `${JSON.stringify(rawState, null, 2)}\n`, "utf8");
+
+  const status = statusTheme({ repoRoot, slug });
+  assert.equal(status.portfolio_coordination_status, "not_evaluated");
+  assert.equal(status.portfolio_status_reason, "portfolio_refresh_required");
+  assert.deepEqual(status.portfolio_related_plan_refs, []);
+  assert.equal(status.portfolio_summary_valid, false);
+
+  const close = closeTheme({
+    repoRoot,
+    cwd: repoRoot,
+    slug,
+  });
+  assert.equal(close.status, "pass");
+  assert.equal(close.ready, true);
+  assert.equal(close.portfolio_coordination_status, "not_evaluated");
+  assert.equal(close.portfolio_status_reason, "portfolio_refresh_required");
 });
 
 test("close --wait-for-merge merges and cleans up an eligible routine theme locally", (t) => {
