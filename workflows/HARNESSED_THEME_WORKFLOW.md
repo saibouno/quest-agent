@@ -79,6 +79,7 @@
 - `node scripts/theme-ops.mjs status --slug <slug>`
   - Reports the canonical repo root, owner boundary, saved checks, current workflow status, `default` / `exempt` / `legacy` harness guidance, and the shared `merge_gate_*` payload.
   - Surfaces the shared `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action` fields.
+  - Surfaces a read-only `bridge_decision` consumer derived from saved `workflow_status` plus saved plan / review / closeout artifacts. In v1 this remains `current_plan_only`; downstream preview and prerequisite binding stay out of scope.
   - Surfaces the advisory-only portfolio summary fields from saved theme state and masks them to `not_evaluated / portfolio_refresh_required` whenever refresh is missing, summary drift is present, or the theme is no longer portfolio-eligible.
   - Uses guidance-only labels such as `not_started`, `not_applicable`, and `legacy` when no harness workflow state exists yet.
 - `node scripts/theme-harness.mjs scaffold-plan --slug <slug>`
