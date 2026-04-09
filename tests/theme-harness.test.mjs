@@ -150,7 +150,6 @@ function portfolioEnvelopeSection({
     "",
   ].join("\n");
 }
-
 const SHARED_BUDGET_KEYS = [
   "max_attempts",
   "max_no_improve_streak",
@@ -588,7 +587,6 @@ test("saved-command planning falls back to shell mode for shell-only syntax", ()
 
   assert.equal(planned.mode, "shell");
 });
-
 test("benchmark-scaffold creates a tracked benchmark pack", (t) => {
   const repoRoot = createFixtureRepo(t, "benchmark-scaffold");
   const packId = "prompt-pack";
@@ -1276,7 +1274,6 @@ test("benchmark-run returns a non-runnable stub without creating runtime artifac
   assert.equal(payload.pack_hash, scaffolded.pack_hash);
   assert.equal(existsSync(runtimeRoot), false);
 });
-
 test("scaffold-closeout gates on aftercare and explain, then succeeds", (t) => {
   const repoRoot = createFixtureRepo(t, "closeout");
   const slug = "closeout";
