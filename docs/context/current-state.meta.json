@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-04-04T02:59:42+09:00",
+  "updated_at": "2026-04-06T03:20:33+09:00",
   "owner": "docs/context/adapter.json",
   "status": "confirmed",
-  "review_at": "2026-04-11T02:59:42+09:00",
+  "review_at": "2026-04-13T03:20:33+09:00",
   "supersedes": [],
   "evidence_quality": "mixed",
   "source_refs": [
@@ -53,11 +53,35 @@
       "path_or_uri": "package-lock.json",
       "locator": "packages",
       "captured_at": "2026-04-04T00:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "components/pages/onboarding-intake-page-client.tsx",
+      "locator": "OnboardingIntakeFlow",
+      "captured_at": "2026-04-06T00:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "components/pages/map-page-client.tsx",
+      "locator": "NavigatorMapPageClient",
+      "captured_at": "2026-04-06T00:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "components/pages/review-page-client.tsx",
+      "locator": "Route Fitness",
+      "captured_at": "2026-04-06T00:00:00+09:00"
+    },
+    {
+      "kind": "markdown",
+      "path_or_uri": "next.config.ts",
+      "locator": "turbopack.root",
+      "captured_at": "2026-04-06T00:00:00+09:00"
     }
   ],
   "active_plan_pointer": null,
   "plan_status": "",
   "blocked_by": [],
   "resume_condition": "No blocked work is recorded right now.",
-  "fallback_focus": "normal feature work with GitHub-centered dependency monitoring and scoped dependency remediation themes"
+  "fallback_focus": "Use the snapshot-backed onboarding flow for new planning work and keep legacy editing scoped to pre-snapshot goals."
 }

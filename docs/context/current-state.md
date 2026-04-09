@@ -28,9 +28,8 @@
 
 ## Current Focus
 
-- The repo now pairs a GitHub-centered dependency security baseline with scaffold-closeout durable-context auto-promotion.
-- The current GitHub dependency alerts were cleared in `quest-agent-security-remediation-v1` from a root checkout without reopening the historical nested-worktree security lane.
-- `next` and `eslint-config-next` now track `16.2.2`, and scoped overrides keep the remaining `flatted`, `brace-expansion`, and `picomatch` paths on fixed releases.
+- Goal Navigator planning now centers on snapshot-backed onboarding and route simulation for new goals.
+- Legacy direct-goal editing remains only for records that do not yet have snapshots.
 
 ## Blocked Work
 
@@ -40,11 +39,12 @@
 
 ## Fallback Focus
 
-- Prefer normal feature and repo-hygiene work while GitHub owns dependency detection and recurring update PR generation.
-- Handle dependency-only remediation and override cleanup in separate scoped themes instead of widening feature lanes.
+- Use the snapshot-backed onboarding flow for new planning work and keep legacy editing scoped to pre-snapshot goals.
 
 ## Recent Confirmed Decisions
 
+- When goal snapshots exist, Goal is a projection and edits must flow through onboarding intake instead of direct workspace editing.
+- Route resimulation should preserve completed, in-progress, and blocked execution records and replace only future planned work.
 - Dependency-only GitHub alert remediation should run in a new root-checkout theme instead of resuming the historical nested-worktree security lane.
 - `node scripts/theme-harness.mjs scaffold-closeout --slug <slug>` auto-promotes the smallest durable delta into `docs/context/*`, and `closeout_ready` waits for `context_promotion_state = applied | noop`.
 - Windows-safe `:noprofile` verify/build spellings are the canonical command surface for this repo and should stay aligned across docs, harness state, and closeout.
@@ -56,6 +56,5 @@
 
 ## Next Safe Themes
 
-- Dependency maintenance work that removes the temporary overrides once upstream trees absorb the fixed transitive releases.
-- Durable-context and runbook follow-ups that stay within `docs/context/*`, harness docs, and related contract tests.
-- Normal product and repo-hygiene work that assumes `npm.cmd run security:verify:noprofile` is the local dependency-security baseline.
+- Browser verification and UX polish for the new onboarding, map, and review flow.
+- Legacy goal migration and cleanup once snapshot-backed planning is stable.

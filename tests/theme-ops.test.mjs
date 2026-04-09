@@ -7,8 +7,19 @@ import { fileURLToPath } from "node:url";
 
 import { closeTheme, recordAftercare, recordExplain, setupTheme, startTheme, statusTheme } from "../scripts/theme-ops.mjs";
 import { loadState } from "../scripts/theme-harness-lib.mjs";
+import {
+  PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE,
+  PORTFOLIO_SHARED_CONTRACT_REF,
+  PORTFOLIO_STATUS_REASON_PATH_OVERLAP_SAME_ARTIFACT_CLASS,
+  buildPortfolioSummary,
+  computePortfolioEnvelopeFingerprint,
+  portfolioArtifactPath,
+} from "../scripts/theme-portfolio-contract.mjs";
 
 const CURRENT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const staleSummaryScenario = JSON.parse(
+  readFileSync(path.join(CURRENT_REPO_ROOT, "tests", "fixtures", "portfolio-orchestration-scenarios.json"), "utf8"),
+).find((entry) => entry.scenario_id === "po_v1_stale_summary_override_001");
 
 function fakeGitExecutor(repoRoot, args) {
   if (args[0] !== "worktree" || args[1] !== "add") {
@@ -71,18 +82,98 @@ function readyBrief(slug) {
     "",
     "```json",
     JSON.stringify({
-      plan_ref: `theme:${slug}`,
+      plan_ref: `output/theme_ops/${slug}-plan.md`,
       plan_id: `plan-${slug}`,
-      plan_version: "1",
-      parent_goal: `goal:${slug}`,
+      plan_version: 1,
       affected_surfaces: [`path:src/${slug}/**`],
-      surface_confidence: "confidence:medium",
-      expected_artifacts: ["artifact:code-module"],
+      surface_confidence: 0.8,
+      expected_artifacts: ["code:runtime-change"],
       prerequisites: ["foundation:fixture-contract"],
     }, null, 2),
     "```",
     "",
   ].join("\n");
+}
+
+function readyPlan(slug, planId = `plan-${slug}`) {
+  return [
+    "# Theme Plan Template",
+    "",
+    "## Portfolio Coordination Envelope",
+    "",
+    "```json",
+    JSON.stringify({
+      plan_ref: `output/theme_ops/${slug}-plan.md`,
+      plan_id: planId,
+      plan_version: 1,
+      affected_surfaces: [`path:src/${slug}/**`],
+      surface_confidence: 0.8,
+      expected_artifacts: ["code:runtime-change"],
+      prerequisites: ["foundation:fixture-contract"],
+    }, null, 2),
+    "```",
+    "",
+  ].join("\n");
+}
+
+function minimalCloseoutDraft() {
+  return [
+    "# Theme Closeout Draft",
+    "",
+    "## Known Issues / Follow-ups",
+    "",
+    "- none",
+    "",
+  ].join("\n");
+}
+
+function rawStatePathFor(repoRoot, slug) {
+  return path.join(repoRoot, "output", "theme_ops", `${slug}.json`);
+}
+
+function updateRawState(repoRoot, slug, updater) {
+  const rawStatePath = rawStatePathFor(repoRoot, slug);
+  const rawState = JSON.parse(readFileSync(rawStatePath, "utf8"));
+  updater(rawState);
+  writeFileSync(rawStatePath, `${JSON.stringify(rawState, null, 2)}\n`, "utf8");
+}
+
+function writeBridgeArtifacts(state, { planId = `plan-${state.slug}`, includePlan = true, includeReview = false, includeCloseout = false } = {}) {
+  if (includePlan) {
+    writeFileSync(state.harness.plan_path, readyPlan(state.slug, planId), "utf8");
+  }
+  if (includeReview) {
+    writeFileSync(state.harness.review_path, "# review\n", "utf8");
+  }
+  if (includeCloseout) {
+    writeFileSync(state.harness.closeout_path, minimalCloseoutDraft(), "utf8");
+  }
+}
+
+function writeValidPortfolioSummary(repoRoot, rawState, envelope, overrides = {}) {
+  const artifactPath = portfolioArtifactPath(repoRoot);
+  mkdirSync(path.dirname(artifactPath), { recursive: true });
+  writeFileSync(artifactPath, "{\n  \"status\": \"fixture\"\n}\n", "utf8");
+
+  rawState.portfolio_coordination = {
+    envelope,
+    summary: buildPortfolioSummary({
+      envelopeFingerprint: computePortfolioEnvelopeFingerprint(envelope),
+      coordinationStatus: PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE,
+      statusReason: PORTFOLIO_STATUS_REASON_PATH_OVERLAP_SAME_ARTIFACT_CLASS,
+      primaryRelationKey: `merge_candidate:${envelope.plan_id}|plan-other:${envelope.affected_surfaces[0]}`,
+      triggeringRelationKeys: [`merge_candidate:${envelope.plan_id}|plan-other:${envelope.affected_surfaces[0]}`],
+      relatedPlanRefs: ["plans/other.md"],
+      portfolioPlanId: "portfolio-coordination-2026-04-09",
+      portfolioPlanVersion: 1,
+      lastRefreshedAt: "2026-04-09T00:00:00.000Z",
+      sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
+      artifactPath,
+      artifactPresent: true,
+      eligible: true,
+      ...overrides,
+    }),
+  };
 }
 
 function createFakeCloseGitExecutor(worktreePath) {
@@ -198,6 +289,10 @@ test("status distinguishes default, exempt, and legacy guidance", (t) => {
   assert.equal(defaultStatus.portfolio_coordination_status, "not_evaluated");
   assert.equal(defaultStatus.portfolio_status_reason, "portfolio_refresh_required");
   assert.equal(defaultStatus.portfolio_summary_valid, false);
+  assert.equal(defaultStatus.bridge_decision.enabled, false);
+  assert.equal(defaultStatus.bridge_decision.disable_reason, "not_started");
+  assert.equal(defaultStatus.bridge_decision.consumer_mode, "read_only");
+  assert.equal(defaultStatus.bridge_decision.consumer_scope, "current_plan_only");
 
   const exemptRoot = createFixtureRepo(t, "exempt");
   startTheme({
@@ -213,6 +308,8 @@ test("status distinguishes default, exempt, and legacy guidance", (t) => {
   assert.equal(exemptStatus.harness_guidance.policy, "exempt");
   assert.equal(exemptStatus.current_workflow_status, "not_applicable");
   assert.equal(exemptStatus.merge_gate_reason, "policy_manual");
+  assert.equal(exemptStatus.bridge_decision.enabled, false);
+  assert.equal(exemptStatus.bridge_decision.disable_reason, "not_applicable");
 
   const legacyRoot = createFixtureRepo(t, "legacy");
   startTheme({
@@ -232,6 +329,8 @@ test("status distinguishes default, exempt, and legacy guidance", (t) => {
   assert.equal(legacyStatus.harness_guidance.policy, "legacy");
   assert.equal(legacyStatus.current_workflow_status, "legacy");
   assert.equal(legacyStatus.merge_gate_reason, "policy_manual");
+  assert.equal(legacyStatus.bridge_decision.enabled, false);
+  assert.equal(legacyStatus.bridge_decision.disable_reason, "not_applicable");
 });
 
 test("setup backfills legacy guidance metadata", (t) => {
@@ -255,6 +354,275 @@ test("setup backfills legacy guidance metadata", (t) => {
   assert.equal(result.status, "pass");
   const state = loadState(repoRoot, slug);
   assert.equal(state.harness_policy, "legacy");
+});
+
+test("status bridge_decision maps workflow states and selected work refs", (t) => {
+  const cases = [
+    {
+      name: "plan_drafted continues current plan before review",
+      suffix: "bridge-plan-drafted",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true });
+        rawState.harness.workflow_status = "plan_drafted";
+        rawState.harness.review_results = {};
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "continue_current_plan");
+        assert.equal(status.bridge_decision.decision_reason, "review_or_revision_completion_required");
+        assert.equal(status.bridge_decision.selected_work_kind, "current_plan");
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-plan-drafted");
+      },
+    },
+    {
+      name: "plan_drafted failed review requests replan",
+      suffix: "bridge-replan",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true, includeReview: true });
+        rawState.harness.workflow_status = "plan_drafted";
+        rawState.harness.review_results = { result: "revise_required" };
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "replan_current_plan");
+        assert.equal(status.bridge_decision.decision_reason, "plan_review_failed");
+        assert.equal(status.bridge_decision.selected_work_kind, "current_plan");
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-replan");
+      },
+    },
+    {
+      name: "plan_reviewed continues into implementing",
+      suffix: "bridge-plan-reviewed",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true, includeReview: true });
+        rawState.harness.workflow_status = "plan_reviewed";
+        rawState.harness.review_results = { result: "pass" };
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "continue_current_plan");
+        assert.equal(status.bridge_decision.decision_reason, "implementation_start_required");
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-plan-reviewed");
+      },
+    },
+    {
+      name: "implementing continues current plan",
+      suffix: "bridge-implementing",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true, includeReview: true });
+        rawState.harness.workflow_status = "implementing";
+        rawState.harness.review_results = { result: "pass" };
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "continue_current_plan");
+        assert.equal(status.bridge_decision.decision_reason, "implementation_in_progress");
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-implementing");
+      },
+    },
+    {
+      name: "verified continues into aftercare and closeout scaffolding",
+      suffix: "bridge-verified",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true, includeReview: true });
+        rawState.harness.workflow_status = "verified";
+        rawState.harness.review_results = { result: "pass" };
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "continue_current_plan");
+        assert.equal(status.bridge_decision.decision_reason, "aftercare_explain_scaffold_closeout_required");
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-verified");
+      },
+    },
+    {
+      name: "blocked pauses for human",
+      suffix: "bridge-blocked",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true });
+        rawState.harness.workflow_status = "blocked";
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "pause_for_human");
+        assert.equal(status.bridge_decision.decision_reason, "workflow_blocked");
+        assert.equal(status.bridge_decision.requires_human, true);
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-blocked");
+      },
+    },
+    {
+      name: "approved pauses for human",
+      suffix: "bridge-approved",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true });
+        rawState.harness.workflow_status = "approved";
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "pause_for_human");
+        assert.equal(status.bridge_decision.decision_reason, "workflow_approved");
+        assert.equal(status.bridge_decision.requires_human, true);
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-approved");
+      },
+    },
+    {
+      name: "rejected pauses for human",
+      suffix: "bridge-rejected",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true });
+        rawState.harness.workflow_status = "rejected";
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "pause_for_human");
+        assert.equal(status.bridge_decision.decision_reason, "workflow_rejected");
+        assert.equal(status.bridge_decision.requires_human, true);
+        assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-rejected");
+      },
+    },
+    {
+      name: "closeout_ready and helper satisfied completes",
+      suffix: "bridge-complete",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true, includeReview: true, includeCloseout: true });
+        rawState.harness.workflow_status = "closeout_ready";
+        rawState.harness.review_results = { result: "pass" };
+        rawState.context_promotion.state = "noop";
+        rawState.context_promotion.reason = "no_durable_delta";
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "complete");
+        assert.equal(status.bridge_decision.decision_reason, "closeout_ready");
+        assert.equal(status.bridge_decision.selected_work_kind, "none");
+        assert.equal(status.bridge_decision.selected_work_ref, "none");
+      },
+    },
+    {
+      name: "closeout_ready without helper satisfaction pauses for human",
+      suffix: "bridge-closeout-mismatch",
+      mutate(rawState, state) {
+        writeBridgeArtifacts(state, { includePlan: true, includeReview: true, includeCloseout: true });
+        rawState.harness.workflow_status = "closeout_ready";
+        rawState.harness.review_results = { result: "pass" };
+        rawState.context_promotion.state = "pending";
+        rawState.context_promotion.reason = "recorded_structured_delta";
+      },
+      assertStatus(status) {
+        assert.equal(status.bridge_decision.decision, "pause_for_human");
+        assert.equal(status.bridge_decision.decision_reason, "closeout_readiness_unsatisfied");
+        assert.equal(status.bridge_decision.selected_work_kind, "current_plan");
+        assert.equal(status.bridge_decision.requires_human, true);
+      },
+    },
+  ];
+
+  for (const scenario of cases) {
+    const repoRoot = createFixtureRepo(t, scenario.suffix);
+    const slug = scenario.suffix;
+    startTheme({
+      repoRoot,
+      cwd: repoRoot,
+      themeName: scenario.name,
+      slug,
+      execGit: fakeGitExecutor,
+    });
+
+    const state = loadState(repoRoot, slug);
+    updateRawState(repoRoot, slug, (rawState) => {
+      scenario.mutate(rawState, state);
+    });
+
+    const status = statusTheme({ repoRoot, slug });
+    assert.equal(status.bridge_decision.enabled, true, scenario.name);
+    scenario.assertStatus(status);
+  }
+});
+
+test("status bridge_decision pauses when saved workflow artifacts are inconsistent", (t) => {
+  const repoRoot = createFixtureRepo(t, "bridge-inconsistent");
+  const slug = "bridge-inconsistent";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Bridge Inconsistent Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  const state = loadState(repoRoot, slug);
+  writeBridgeArtifacts(state, { includePlan: true, includeReview: false });
+  updateRawState(repoRoot, slug, (rawState) => {
+    rawState.harness.workflow_status = "plan_reviewed";
+    rawState.harness.review_results = { result: "pass" };
+  });
+
+  const status = statusTheme({ repoRoot, slug });
+  assert.equal(status.bridge_decision.decision, "pause_for_human");
+  assert.equal(status.bridge_decision.decision_reason, "missing_review_artifact");
+  assert.equal(status.bridge_decision.selected_work_kind, "current_plan");
+  assert.equal(status.bridge_decision.selected_work_ref, "plan-bridge-inconsistent");
+});
+
+test("status bridge_decision prefers state plan_id and keeps portfolio summary advisory-only", (t) => {
+  const repoRoot = createFixtureRepo(t, "bridge-advisory");
+  const slug = "bridge-advisory";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Bridge Advisory Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  const state = loadState(repoRoot, slug);
+  writeBridgeArtifacts(state, { planId: "plan-from-artifact", includePlan: true, includeReview: true });
+  updateRawState(repoRoot, slug, (rawState) => {
+    rawState.harness.workflow_status = "implementing";
+    rawState.harness.review_results = { result: "pass" };
+
+    const envelope = {
+      plan_ref: `output/theme_ops/${slug}-plan.md`,
+      plan_id: "plan-from-state",
+      plan_version: 1,
+      affected_surfaces: [`path:src/${slug}/**`],
+      surface_confidence: 0.8,
+      expected_artifacts: ["code:runtime-change"],
+      prerequisites: ["foundation:fixture-contract"],
+      required_resources: [],
+    };
+    writeValidPortfolioSummary(repoRoot, rawState, envelope);
+  });
+
+  const status = statusTheme({ repoRoot, slug });
+  assert.equal(status.bridge_decision.decision, "continue_current_plan");
+  assert.equal(status.bridge_decision.decision_reason, "implementation_in_progress");
+  assert.equal(status.bridge_decision.selected_work_kind, "current_plan");
+  assert.equal(status.bridge_decision.selected_work_ref, "plan-from-state");
+  assert.deepEqual(status.bridge_decision.advisory_inputs_used, ["portfolio_coordination.summary"]);
+  assert.ok(status.bridge_decision.decision_source_refs.includes("state:portfolio_coordination.summary"));
+  assert.ok(!status.bridge_decision.blocking_refs.some((entry) => entry.includes("portfolio_coordination.summary")));
+  assert.equal(status.portfolio_coordination_status, "merge_candidate");
+  assert.equal(status.portfolio_status_reason, PORTFOLIO_STATUS_REASON_PATH_OVERLAP_SAME_ARTIFACT_CLASS);
+});
+
+test("status bridge_decision falls back to slug when no plan_id is available", (t) => {
+  const repoRoot = createFixtureRepo(t, "bridge-slug-fallback");
+  const slug = "bridge-slug-fallback";
+  startTheme({
+    repoRoot,
+    cwd: repoRoot,
+    themeName: "Bridge Slug Fallback Theme",
+    slug,
+    execGit: fakeGitExecutor,
+  });
+
+  const state = loadState(repoRoot, slug);
+  writeFileSync(state.harness.plan_path, "# Theme Plan Template\n\n## Portfolio Coordination Envelope\n\n```json\n{}\n```\n", "utf8");
+  updateRawState(repoRoot, slug, (rawState) => {
+    rawState.harness.workflow_status = "plan_drafted";
+    rawState.harness.review_results = {};
+    rawState.portfolio_coordination = {
+      envelope: null,
+      summary: rawState.portfolio_coordination.summary,
+    };
+  });
+
+  const status = statusTheme({ repoRoot, slug });
+  assert.equal(status.bridge_decision.decision, "continue_current_plan");
+  assert.equal(status.bridge_decision.selected_work_kind, "current_plan");
+  assert.equal(status.bridge_decision.selected_work_ref, slug);
 });
 
 test("aftercare, explain, and close return remediation from the wrong cwd", (t) => {
@@ -459,7 +827,7 @@ test("close reports action_required while context promotion is pending", (t) => 
   assert.equal(result.ready, false);
 });
 
-test("status and close mask invalid portfolio summaries without blocking readiness", (t) => {
+test("status and close match canonical scenario po_v1_stale_summary_override_001 without blocking readiness", (t) => {
   const repoRoot = createFixtureRepo(t, "portfolio-summary");
   const slug = "portfolio-summary";
   startTheme({
@@ -506,39 +874,39 @@ test("status and close mask invalid portfolio summaries without blocking readine
   ];
   rawState.portfolio_coordination = {
     envelope: {
-      plan_ref: `theme:${slug}`,
+      plan_ref: `output/theme_ops/${slug}-plan.md`,
       plan_id: `plan-${slug}`,
-      plan_version: "1",
-      parent_goal: `goal:${slug}`,
+      plan_version: 1,
       affected_surfaces: ["path:src/portfolio-summary/**"],
-      surface_confidence: "confidence:medium",
-      expected_artifacts: ["artifact:code-module"],
+      surface_confidence: 0.8,
+      expected_artifacts: ["code:runtime-change"],
       prerequisites: ["foundation:fixture-contract"],
       required_resources: [],
     },
     summary: {
-      coordination_status: "merge_candidate",
-      status_reason: "path_overlap_same_artifact_class",
-      primary_relation_key: "relation:stale",
-      triggering_relation_keys: ["relation:stale"],
-      related_plan_refs: ["theme:other"],
-      portfolio_id: "quest-agent-theme-portfolio",
-      portfolio_version: "1",
+      coordination_status: staleSummaryScenario.saved_summary.coordination_status,
+      status_reason: staleSummaryScenario.saved_summary.status_reason,
+      primary_relation_key: staleSummaryScenario.saved_summary.primary_relation_key,
+      triggering_relation_keys: staleSummaryScenario.saved_summary.triggering_relation_keys,
+      related_plan_refs: staleSummaryScenario.saved_summary.related_plan_refs,
+      portfolio_plan_id: "portfolio-coordination-2026-04-08",
+      portfolio_plan_version: 1,
       last_refreshed_at: "2026-04-08T00:00:00.000Z",
-      summary_valid: false,
+      summary_valid: staleSummaryScenario.saved_summary.summary_valid,
       envelope_fingerprint: "abc123",
       summary_basis_fingerprint: "def456",
-      shared_contract_ref: "quest-agent:portfolio-coordination/v1",
+      shared_contract_ref: PORTFOLIO_SHARED_CONTRACT_REF,
       advisory_notes: ["stale advisory"],
     },
   };
   writeFileSync(rawStatePath, `${JSON.stringify(rawState, null, 2)}\n`, "utf8");
 
   const status = statusTheme({ repoRoot, slug });
-  assert.equal(status.portfolio_coordination_status, "not_evaluated");
-  assert.equal(status.portfolio_status_reason, "portfolio_refresh_required");
-  assert.deepEqual(status.portfolio_related_plan_refs, []);
+  assert.equal(status.portfolio_coordination_status, staleSummaryScenario.expected_display.coordination_status);
+  assert.equal(status.portfolio_status_reason, staleSummaryScenario.expected_display.status_reason);
+  assert.deepEqual(status.portfolio_related_plan_refs, staleSummaryScenario.expected_display.related_plan_refs);
   assert.equal(status.portfolio_summary_valid, false);
+  assert.equal(status.portfolio_primary_relation_key, staleSummaryScenario.expected_display.primary_relation_key);
 
   const close = closeTheme({
     repoRoot,
@@ -547,8 +915,10 @@ test("status and close mask invalid portfolio summaries without blocking readine
   });
   assert.equal(close.status, "pass");
   assert.equal(close.ready, true);
-  assert.equal(close.portfolio_coordination_status, "not_evaluated");
-  assert.equal(close.portfolio_status_reason, "portfolio_refresh_required");
+  assert.equal(close.portfolio_coordination_status, staleSummaryScenario.expected_display.coordination_status);
+  assert.equal(close.portfolio_status_reason, staleSummaryScenario.expected_display.status_reason);
+  assert.deepEqual(close.portfolio_related_plan_refs, staleSummaryScenario.expected_display.related_plan_refs);
+  assert.equal(close.portfolio_primary_relation_key, staleSummaryScenario.expected_display.primary_relation_key);
 });
 
 test("close --wait-for-merge merges and cleans up an eligible routine theme locally", (t) => {
