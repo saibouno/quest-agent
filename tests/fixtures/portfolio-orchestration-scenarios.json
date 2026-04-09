@@ -1,0 +1,261 @@
+[
+  {
+    "scenario_id": "po_v1_parallel_safe_001",
+    "envelopes": [
+      {
+        "plan_ref": "plans/auth-session.md",
+        "plan_id": "auth-session",
+        "plan_version": 1,
+        "surface_confidence": 0.9,
+        "affected_surfaces": [
+          "path:src/auth/session/**"
+        ],
+        "expected_artifacts": [
+          "code:runtime-change"
+        ],
+        "prerequisites": [
+          "decision:shared-plan-loop-template-v2"
+        ],
+        "required_resources": []
+      },
+      {
+        "plan_ref": "plans/ui-dashboard.md",
+        "plan_id": "ui-dashboard",
+        "plan_version": 1,
+        "surface_confidence": 0.93,
+        "affected_surfaces": [
+          "ui:dashboard-home"
+        ],
+        "expected_artifacts": [
+          "doc:runbook"
+        ],
+        "prerequisites": [
+          "decision:shared-plan-loop-template-v2"
+        ],
+        "required_resources": []
+      }
+    ],
+    "expected_relations": [],
+    "expected_registered_plans": [
+      {
+        "plan_id": "auth-session",
+        "coordination_status": "parallel_safe"
+      },
+      {
+        "plan_id": "ui-dashboard",
+        "coordination_status": "parallel_safe"
+      }
+    ],
+    "expected_global_execution_lanes": [
+      {
+        "lane_type": "execution",
+        "plan_ids": [
+          "auth-session"
+        ]
+      },
+      {
+        "lane_type": "execution",
+        "plan_ids": [
+          "ui-dashboard"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "po_v1_merge_candidate_001",
+    "envelopes": [
+      {
+        "plan_ref": "plans/auth-docs-a.md",
+        "plan_id": "auth-docs-a",
+        "plan_version": 2,
+        "surface_confidence": 0.88,
+        "affected_surfaces": [
+          "path:docs/runbooks/auth/**"
+        ],
+        "expected_artifacts": [
+          "doc:runbook"
+        ],
+        "prerequisites": [],
+        "required_resources": []
+      },
+      {
+        "plan_ref": "plans/auth-docs-b.md",
+        "plan_id": "auth-docs-b",
+        "plan_version": 1,
+        "surface_confidence": 0.91,
+        "affected_surfaces": [
+          "path:docs/runbooks/auth/session/**"
+        ],
+        "expected_artifacts": [
+          "doc:runbook"
+        ],
+        "prerequisites": [],
+        "required_resources": []
+      }
+    ],
+    "expected_relations": [
+      {
+        "primary_relation_type": "merge_candidate"
+      }
+    ],
+    "expected_registered_plans": [
+      {
+        "plan_id": "auth-docs-a",
+        "coordination_status": "merge_candidate"
+      },
+      {
+        "plan_id": "auth-docs-b",
+        "coordination_status": "merge_candidate"
+      }
+    ],
+    "expected_global_execution_lanes": [
+      {
+        "lane_type": "merge_review",
+        "plan_ids": [
+          "auth-docs-a",
+          "auth-docs-b"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "po_v1_conflict_review_001",
+    "envelopes": [
+      {
+        "plan_ref": "plans/auth-runtime.md",
+        "plan_id": "auth-runtime",
+        "plan_version": 4,
+        "surface_confidence": 0.84,
+        "affected_surfaces": [
+          "path:src/auth/**"
+        ],
+        "expected_artifacts": [
+          "code:runtime-change"
+        ],
+        "prerequisites": [],
+        "required_resources": []
+      },
+      {
+        "plan_ref": "plans/auth-config.md",
+        "plan_id": "auth-config",
+        "plan_version": 2,
+        "surface_confidence": 0.86,
+        "affected_surfaces": [
+          "path:src/auth/session/**"
+        ],
+        "expected_artifacts": [
+          "config:runtime-config"
+        ],
+        "prerequisites": [],
+        "required_resources": []
+      }
+    ],
+    "expected_relations": [
+      {
+        "primary_relation_type": "conflict_review"
+      }
+    ],
+    "expected_registered_plans": [
+      {
+        "plan_id": "auth-config",
+        "coordination_status": "conflict_review"
+      },
+      {
+        "plan_id": "auth-runtime",
+        "coordination_status": "conflict_review"
+      }
+    ],
+    "expected_global_execution_lanes": [
+      {
+        "lane_type": "review_hold",
+        "plan_ids": [
+          "auth-config",
+          "auth-runtime"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "po_v1_shared_foundation_001",
+    "envelopes": [
+      {
+        "plan_ref": "plans/auth-ui.md",
+        "plan_id": "auth-ui",
+        "plan_version": 1,
+        "surface_confidence": 0.9,
+        "affected_surfaces": [
+          "ui:auth-signin"
+        ],
+        "expected_artifacts": [
+          "code:ui-change"
+        ],
+        "prerequisites": [
+          "foundation:auth-core"
+        ],
+        "required_resources": []
+      },
+      {
+        "plan_ref": "plans/auth-report.md",
+        "plan_id": "auth-report",
+        "plan_version": 1,
+        "surface_confidence": 0.87,
+        "affected_surfaces": [
+          "report:auth-health"
+        ],
+        "expected_artifacts": [
+          "report:weekly-summary"
+        ],
+        "prerequisites": [
+          "foundation:auth-core"
+        ],
+        "required_resources": []
+      }
+    ],
+    "expected_relations": [
+      {
+        "primary_relation_type": "shared_foundation_candidate"
+      }
+    ],
+    "expected_registered_plans": [
+      {
+        "plan_id": "auth-report",
+        "coordination_status": "shared_foundation_candidate"
+      },
+      {
+        "plan_id": "auth-ui",
+        "coordination_status": "shared_foundation_candidate"
+      }
+    ],
+    "expected_global_execution_lanes": [
+      {
+        "lane_type": "foundation_first",
+        "plan_ids": [
+          "auth-report",
+          "auth-ui"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "po_v1_stale_summary_override_001",
+    "saved_summary": {
+      "coordination_status": "merge_candidate",
+      "status_reason": "Old merge relation",
+      "primary_relation_key": "merge_candidate:auth-docs-a|auth-docs-b:path:docs/runbooks/auth/**",
+      "triggering_relation_keys": [
+        "merge_candidate:auth-docs-a|auth-docs-b:path:docs/runbooks/auth/**"
+      ],
+      "related_plan_refs": [
+        "plans/auth-docs-b.md"
+      ],
+      "summary_valid": false
+    },
+    "expected_display": {
+      "coordination_status": "not_evaluated",
+      "status_reason": "portfolio_refresh_required",
+      "primary_relation_key": "",
+      "triggering_relation_keys": [],
+      "related_plan_refs": []
+    }
+  }
+]

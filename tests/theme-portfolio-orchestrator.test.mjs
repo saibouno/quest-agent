@@ -8,9 +8,15 @@ import { fileURLToPath } from "node:url";
 import { startTheme } from "../scripts/theme-ops.mjs";
 import { loadState, saveState } from "../scripts/theme-harness-lib.mjs";
 import { refreshPortfolio, statusPortfolio } from "../scripts/theme-portfolio-orchestrator.mjs";
-import { buildPairwisePortfolioRelations } from "../scripts/theme-portfolio-contract.mjs";
+import {
+  PORTFOLIO_SHARED_CONTRACT_REF,
+  buildPairwisePortfolioRelations,
+} from "../scripts/theme-portfolio-contract.mjs";
 
 const CURRENT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const canonicalScenarios = JSON.parse(
+  readFileSync(path.join(CURRENT_REPO_ROOT, "tests", "fixtures", "portfolio-orchestration-scenarios.json"), "utf8"),
+);
 
 function fakeGitExecutor(repoRoot, args) {
   if (args[0] !== "worktree" || args[1] !== "add") {
@@ -58,44 +64,19 @@ function createFixtureRepo(testContext, suffix) {
   return repoRoot;
 }
 
-function envelope({
-  slug,
-  planId = `plan-${slug}`,
-  planRef = `theme:${slug}`,
-  affectedSurfaces = [`path:src/${slug}/**`],
-  expectedArtifacts = ["artifact:code-module"],
-  prerequisites = ["foundation:fixture-contract"],
-  requiredResources = [],
-} = {}) {
-  const result = {
-    plan_ref: planRef,
-    plan_id: planId,
-    plan_version: "1",
-    parent_goal: `goal:${slug}`,
-    affected_surfaces: affectedSurfaces,
-    surface_confidence: "confidence:medium",
-    expected_artifacts: expectedArtifacts,
-    prerequisites,
-  };
-  if (requiredResources.length) {
-    result.required_resources = requiredResources;
-  }
-  return result;
-}
-
-function startPortfolioTheme(repoRoot, slug, portfolioEnvelope, workflowStatus = "implementing") {
+function startPortfolioTheme(repoRoot, envelope, workflowStatus = "implementing") {
   startTheme({
     repoRoot,
     cwd: repoRoot,
-    themeName: `Theme ${slug}`,
-    slug,
+    themeName: `Theme ${envelope.plan_id}`,
+    slug: envelope.plan_id,
     requiredChecks: ["node -e \"process.exit(0)\""],
     execGit: fakeGitExecutor,
   });
 
-  const state = loadState(repoRoot, slug);
+  const state = loadState(repoRoot, envelope.plan_id);
   state.harness.workflow_status = workflowStatus;
-  state.portfolio_coordination.envelope = portfolioEnvelope;
+  state.portfolio_coordination.envelope = envelope;
   state.portfolio_coordination.summary.summary_valid = false;
   saveState(repoRoot, state);
 }
@@ -106,166 +87,139 @@ function readArtifact(repoRoot) {
   return JSON.parse(readFileSync(result.artifact_path, "utf8"));
 }
 
-test("refresh classifies disjoint surfaces as parallel_safe and execution lane", (t) => {
-  const repoRoot = createFixtureRepo(t, "parallel-safe");
-  startPortfolioTheme(repoRoot, "alpha", envelope({
-    slug: "alpha",
-    affectedSurfaces: ["path:src/alpha/**"],
-    prerequisites: ["foundation:alpha-base"],
-  }));
-  startPortfolioTheme(repoRoot, "beta", envelope({
-    slug: "beta",
-    affectedSurfaces: ["path:src/beta/**"],
-    prerequisites: ["foundation:beta-base"],
-  }));
+function lanePlanIds(artifact, lane) {
+  const planIdByRef = new Map(artifact.registered_plans.map((entry) => [entry.plan_ref, entry.plan_id]));
+  return lane.plan_refs.map((planRef) => planIdByRef.get(planRef));
+}
 
-  const result = refreshPortfolio({ repoRoot, cwd: repoRoot });
-  assert.equal(result.status, "pass");
+for (const scenario of canonicalScenarios.filter((entry) => Array.isArray(entry.envelopes))) {
+  test(`refresh matches canonical scenario ${scenario.scenario_id}`, (t) => {
+    const repoRoot = createFixtureRepo(t, scenario.scenario_id);
+    for (const envelope of scenario.envelopes) {
+      startPortfolioTheme(repoRoot, envelope);
+    }
 
-  const artifact = readArtifact(repoRoot);
-  assert.equal(artifact.relations[0].relation_type, "parallel_safe");
-  assert.deepEqual(
-    artifact.global_execution_lanes.find((lane) => lane.lane === "execution")?.plan_ids,
-    ["plan-alpha", "plan-beta"],
-  );
+    const result = refreshPortfolio({ repoRoot, cwd: repoRoot });
+    assert.equal(result.status, "pass");
 
-  const alpha = loadState(repoRoot, "alpha");
-  const beta = loadState(repoRoot, "beta");
-  assert.equal(alpha.portfolio_coordination.summary.coordination_status, "parallel_safe");
-  assert.equal(beta.portfolio_coordination.summary.coordination_status, "parallel_safe");
+    const artifact = readArtifact(repoRoot);
+    assert.equal(typeof artifact.portfolio_plan_id, "string");
+    assert.equal(artifact.portfolio_plan_version, 1);
+    assert.equal(typeof artifact.generated_at, "string");
+    assert.ok(!Object.hasOwn(artifact, "artifact_type"));
+    assert.ok(!Object.hasOwn(artifact, "portfolio_id"));
+    assert.ok(!Object.hasOwn(artifact, "portfolio_version"));
 
-  const seenPlanIds = artifact.global_execution_lanes.flatMap((lane) => lane.plan_ids);
-  assert.deepEqual(seenPlanIds.sort(), ["plan-alpha", "plan-beta"]);
-});
+    const registeredPlanIds = artifact.registered_plans.map((entry) => entry.plan_id);
+    assert.deepEqual(registeredPlanIds, [...registeredPlanIds].sort());
 
-test("refresh classifies overlapping paths with the same artifact class as merge_candidate", (t) => {
-  const repoRoot = createFixtureRepo(t, "merge-candidate");
-  startPortfolioTheme(repoRoot, "auth", envelope({
-    slug: "auth",
-    affectedSurfaces: ["path:src/auth/**"],
-    expectedArtifacts: ["artifact:code-module"],
-  }));
-  startPortfolioTheme(repoRoot, "session", envelope({
-    slug: "session",
-    affectedSurfaces: ["path:src/auth/session/**"],
-    expectedArtifacts: ["artifact:code-module"],
-  }));
+    const relationKeys = artifact.relations.map((entry) => entry.relation_key);
+    assert.deepEqual(relationKeys, [...relationKeys].sort());
+    assert.ok(!artifact.relations.some((entry) => entry.primary_relation_type === "parallel_safe"));
 
-  refreshPortfolio({ repoRoot, cwd: repoRoot });
-  const artifact = readArtifact(repoRoot);
-  assert.equal(artifact.relations[0].relation_type, "merge_candidate");
-  assert.deepEqual(
-    artifact.global_execution_lanes.find((lane) => lane.lane === "merge_review")?.plan_ids,
-    ["plan-auth", "plan-session"],
-  );
-});
+    const laneTypes = artifact.global_execution_lanes.map((entry) => entry.lane_type);
+    assert.deepEqual(
+      laneTypes,
+      scenario.expected_global_execution_lanes.map((entry) => entry.lane_type),
+    );
 
-test("refresh classifies overlapping paths with different artifact classes as conflict_review", (t) => {
-  const repoRoot = createFixtureRepo(t, "conflict-review");
-  startPortfolioTheme(repoRoot, "auth", envelope({
-    slug: "auth",
-    affectedSurfaces: ["path:src/auth/**"],
-    expectedArtifacts: ["artifact:code-module"],
-  }));
-  startPortfolioTheme(repoRoot, "docs", envelope({
-    slug: "docs",
-    affectedSurfaces: ["path:src/auth/session/**"],
-    expectedArtifacts: ["artifact:docs-page"],
-  }));
+    for (const lane of artifact.global_execution_lanes) {
+      const memberPlanIds = lanePlanIds(artifact, lane);
+      assert.deepEqual(memberPlanIds, [...memberPlanIds].sort());
+      if (lane.lane_type === "execution") {
+        assert.equal(lane.plan_refs.length, 1);
+        assert.deepEqual(lane.derived_from_relation_keys, []);
+      }
+    }
 
-  refreshPortfolio({ repoRoot, cwd: repoRoot });
-  const artifact = readArtifact(repoRoot);
-  assert.equal(artifact.relations[0].relation_type, "conflict_review");
-  assert.deepEqual(
-    artifact.global_execution_lanes.find((lane) => lane.lane === "review_hold")?.plan_ids,
-    ["plan-auth", "plan-docs"],
-  );
-});
+    assert.deepEqual(
+      artifact.relations.map((entry) => entry.primary_relation_type),
+      scenario.expected_relations.map((entry) => entry.primary_relation_type),
+    );
+    assert.deepEqual(
+      artifact.registered_plans.map((entry) => ({
+        plan_id: entry.plan_id,
+        coordination_status: entry.coordination_status,
+      })),
+      scenario.expected_registered_plans,
+    );
+    assert.deepEqual(
+      artifact.global_execution_lanes.map((entry) => ({
+        lane_type: entry.lane_type,
+        plan_ids: lanePlanIds(artifact, entry),
+      })),
+      scenario.expected_global_execution_lanes,
+    );
 
-test("refresh classifies shared foundation prerequisites as shared_foundation_candidate", (t) => {
-  const repoRoot = createFixtureRepo(t, "shared-foundation");
-  startPortfolioTheme(repoRoot, "alpha", envelope({
-    slug: "alpha",
-    affectedSurfaces: ["path:src/alpha/**"],
-    prerequisites: ["foundation:shared-auth"],
-  }));
-  startPortfolioTheme(repoRoot, "beta", envelope({
-    slug: "beta",
-    affectedSurfaces: ["path:src/beta/**"],
-    prerequisites: ["foundation:shared-auth"],
-  }));
+    for (const envelope of scenario.envelopes) {
+      const state = loadState(repoRoot, envelope.plan_id);
+      assert.equal(state.portfolio_coordination.summary.summary_valid, true);
+      assert.equal(state.portfolio_coordination.summary.shared_contract_ref, PORTFOLIO_SHARED_CONTRACT_REF);
+    }
+  });
+}
 
-  refreshPortfolio({ repoRoot, cwd: repoRoot });
-  const artifact = readArtifact(repoRoot);
-  assert.equal(artifact.relations[0].relation_type, "shared_foundation_candidate");
-  assert.deepEqual(
-    artifact.global_execution_lanes.find((lane) => lane.lane === "foundation_first")?.plan_ids,
-    ["plan-alpha", "plan-beta"],
-  );
-});
-
-test("refresh keeps raw prerequisite correlation advisory-only", (t) => {
-  const repoRoot = createFixtureRepo(t, "raw-prerequisite");
-  startPortfolioTheme(repoRoot, "alpha", envelope({
-    slug: "alpha",
-    affectedSurfaces: ["path:src/alpha/**"],
-    prerequisites: ["foundation:alpha-base", "shared-auth"],
-  }));
-  startPortfolioTheme(repoRoot, "beta", envelope({
-    slug: "beta",
-    affectedSurfaces: ["path:src/beta/**"],
-    prerequisites: ["foundation:beta-base", "shared-auth"],
-  }));
-
-  refreshPortfolio({ repoRoot, cwd: repoRoot });
-  const artifact = readArtifact(repoRoot);
-  assert.equal(artifact.relations[0].relation_type, "parallel_safe");
-  assert.ok(artifact.extensions["quest-agent"].refresh_diagnostics.advisory_notes.some((note) => note.includes("shared-auth")));
-  assert.ok(artifact.registered_plans.every((plan) => plan.advisory_notes.some((note) => note.includes("shared-auth"))));
-});
-
-test("relation keys stay stable across plan order, surface order, and plan_ref changes", () => {
+test("refresh keeps merge relation keys stable across plan_ref changes and envelope ordering", () => {
   const first = buildPairwisePortfolioRelations(
     {
-      envelope: envelope({
-        slug: "alpha",
-        planId: "plan-b",
-        planRef: "theme:alpha-a",
-        affectedSurfaces: ["path:src/auth/**", "path:src/auth/session/**"],
-        expectedArtifacts: ["artifact:code-module"],
-      }),
+      envelope: {
+        plan_ref: "plans/auth-docs-a.md",
+        plan_id: "auth-docs-b",
+        plan_version: 1,
+        surface_confidence: 0.91,
+        affected_surfaces: ["path:docs/runbooks/auth/session/**", "path:docs/runbooks/auth/**"],
+        expected_artifacts: ["doc:runbook"],
+        prerequisites: [],
+        required_resources: [],
+      },
     },
     {
-      envelope: envelope({
-        slug: "beta",
-        planId: "plan-a",
-        planRef: "theme:beta-a",
-        affectedSurfaces: ["path:src/auth/session/**", "path:src/auth/**"],
-        expectedArtifacts: ["artifact:code-module"],
-      }),
+      envelope: {
+        plan_ref: "plans/auth-docs-b.md",
+        plan_id: "auth-docs-a",
+        plan_version: 2,
+        surface_confidence: 0.88,
+        affected_surfaces: ["path:docs/runbooks/auth/**"],
+        expected_artifacts: ["doc:runbook"],
+        prerequisites: [],
+        required_resources: [],
+      },
     },
-  ).map((relation) => relation.relation_key);
+  );
 
   const second = buildPairwisePortfolioRelations(
     {
-      envelope: envelope({
-        slug: "alpha",
-        planId: "plan-b",
-        planRef: "theme:alpha-b",
-        affectedSurfaces: ["path:src/auth/session/**", "path:src/auth/**"],
-        expectedArtifacts: ["artifact:code-module"],
-      }),
+      envelope: {
+        plan_ref: "plans/renamed-auth-docs-a.md",
+        plan_id: "auth-docs-a",
+        plan_version: 2,
+        surface_confidence: 0.88,
+        affected_surfaces: ["path:docs/runbooks/auth/**"],
+        expected_artifacts: ["doc:runbook"],
+        prerequisites: [],
+        required_resources: [],
+      },
     },
     {
-      envelope: envelope({
-        slug: "beta",
-        planId: "plan-a",
-        planRef: "theme:beta-b",
-        affectedSurfaces: ["path:src/auth/**", "path:src/auth/session/**"],
-        expectedArtifacts: ["artifact:code-module"],
-      }),
+      envelope: {
+        plan_ref: "plans/renamed-auth-docs-b.md",
+        plan_id: "auth-docs-b",
+        plan_version: 1,
+        surface_confidence: 0.91,
+        affected_surfaces: ["path:docs/runbooks/auth/**", "path:docs/runbooks/auth/session/**"],
+        expected_artifacts: ["doc:runbook"],
+        prerequisites: [],
+        required_resources: [],
+      },
     },
-  ).map((relation) => relation.relation_key);
+  );
 
-  assert.deepEqual(first, second);
+  assert.deepEqual(
+    first.map((entry) => entry.relation_key),
+    ["merge_candidate:auth-docs-a|auth-docs-b:path:docs/runbooks/auth/**"],
+  );
+  assert.deepEqual(
+    second.map((entry) => entry.relation_key),
+    ["merge_candidate:auth-docs-a|auth-docs-b:path:docs/runbooks/auth/**"],
+  );
 });

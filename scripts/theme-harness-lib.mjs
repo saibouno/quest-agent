@@ -801,19 +801,19 @@ export function renderTemplate(templateText, replacements) {
 export function buildPlanFromBrief({ briefText, state, templateText }) {
   const sections = parseMarkdownSections(briefText);
   const summarySection = sections.Summary || "";
+  const defaultPlanRef = path.relative(state.repo_root, state.harness.plan_path).replace(/\\/g, "/");
   const defaultPortfolioEnvelope = [
     "```json",
     "{",
-    "  \"plan_ref\": \"theme:<fill:plan-ref>\",",
-    "  \"plan_id\": \"<fill:plan-id>\",",
-    "  \"plan_version\": \"1\",",
-    "  \"parent_goal\": \"<fill:parent-goal>\",",
+    `  \"plan_ref\": \"${defaultPlanRef}\",`,
+    `  \"plan_id\": \"${state.slug}\",`,
+    "  \"plan_version\": 1,",
     "  \"affected_surfaces\": [",
     "    \"path:<fill:affected-surface>\"",
     "  ],",
-    "  \"surface_confidence\": \"confidence:medium\",",
+    "  \"surface_confidence\": 0.8,",
     "  \"expected_artifacts\": [",
-    "    \"artifact:<fill:expected-artifact>\"",
+    "    \"code:<fill:expected-artifact>\"",
     "  ],",
     "  \"prerequisites\": [",
     "    \"foundation:<fill:prerequisite>\"",
@@ -850,6 +850,7 @@ export function buildPlanFromBrief({ briefText, state, templateText }) {
 }
 
 export function briefStubContent(state) {
+  const defaultPlanRef = path.relative(state.repo_root, state.harness.plan_path).replace(/\\/g, "/");
   const lines = [
     "# Theme Brief",
     "",
@@ -884,16 +885,15 @@ export function briefStubContent(state) {
     "",
     "```json",
     "{",
-    "  \"plan_ref\": \"theme:<fill:plan-ref>\",",
-    "  \"plan_id\": \"<fill:plan-id>\",",
-    "  \"plan_version\": \"1\",",
-    "  \"parent_goal\": \"<fill:parent-goal>\",",
+    `  \"plan_ref\": \"${defaultPlanRef}\",`,
+    `  \"plan_id\": \"${state.slug}\",`,
+    "  \"plan_version\": 1,",
     "  \"affected_surfaces\": [",
     "    \"path:<fill:affected-surface>\"",
     "  ],",
-    "  \"surface_confidence\": \"confidence:medium\",",
+    "  \"surface_confidence\": 0.8,",
     "  \"expected_artifacts\": [",
-    "    \"artifact:<fill:expected-artifact>\"",
+    "    \"code:<fill:expected-artifact>\"",
     "  ],",
     "  \"prerequisites\": [",
     "    \"foundation:<fill:prerequisite>\"",

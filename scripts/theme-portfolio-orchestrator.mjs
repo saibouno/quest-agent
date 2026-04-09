@@ -18,13 +18,16 @@ import {
 } from "./theme-harness-lib.mjs";
 import {
   PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE,
+  PORTFOLIO_EXECUTION_LANE_FOUNDATION_FIRST,
+  PORTFOLIO_EXECUTION_LANE_MERGE_REVIEW,
+  PORTFOLIO_EXECUTION_LANE_REVIEW_HOLD,
   PORTFOLIO_EXECUTION_LANES,
-  PORTFOLIO_ID,
+  PORTFOLIO_PLAN_VERSION,
   PORTFOLIO_SHARED_CONTRACT_REF,
   PORTFOLIO_STATUS_REASON_NO_RELATED_ACTIVE_PLANS,
-  PORTFOLIO_VERSION,
   analyzePortfolioCoordinationEnvelope,
   buildPairwisePortfolioRelations,
+  buildPortfolioPlanId,
   buildPortfolioSummary,
   computePortfolioEnvelopeFingerprint,
   ensurePortfolioCoordinationShape,
@@ -37,9 +40,7 @@ import {
 
 const REPO_ROOT = getRepoRootFromImport(import.meta.url);
 
-function isRawToken(value) {
-  return !/^[a-z][a-z0-9_-]*:/u.test(String(value || "").trim().toLowerCase());
-}
+const LANE_ORDER = new Map(PORTFOLIO_EXECUTION_LANES.map((lane, index) => [lane, index]));
 
 function themeStateSlugs(repoRoot) {
   const root = outputDir(repoRoot);
@@ -53,43 +54,165 @@ function themeStateSlugs(repoRoot) {
     .sort();
 }
 
-function summarizePlanRelations(plan, relations, generatedAt, artifactPath) {
-  const ordered = [...relations].sort((left, right) => {
-    const priorityDelta = portfolioRelationPriority(right.relation_type) - portfolioRelationPriority(left.relation_type);
+function planSort(left, right) {
+  return left.envelope.plan_id.localeCompare(right.envelope.plan_id)
+    || left.envelope.plan_ref.localeCompare(right.envelope.plan_ref)
+    || left.state.slug.localeCompare(right.state.slug);
+}
+
+function registeredPlanArtifactSort(left, right) {
+  return left.plan_id.localeCompare(right.plan_id)
+    || left.plan_ref.localeCompare(right.plan_ref);
+}
+
+function relationSort(left, right) {
+  return left.relation_key.localeCompare(right.relation_key);
+}
+
+function laneMemberSort(left, right) {
+  return left.plan.envelope.plan_id.localeCompare(right.plan.envelope.plan_id)
+    || left.plan.envelope.plan_ref.localeCompare(right.plan.envelope.plan_ref);
+}
+
+function laneSort(left, right) {
+  const laneTypeDelta = (LANE_ORDER.get(left.lane_type) ?? Number.MAX_SAFE_INTEGER)
+    - (LANE_ORDER.get(right.lane_type) ?? Number.MAX_SAFE_INTEGER);
+  if (laneTypeDelta !== 0) {
+    return laneTypeDelta;
+  }
+
+  const leftKey = left.plan_refs.join("|");
+  const rightKey = right.plan_refs.join("|");
+  return leftKey.localeCompare(rightKey) || left.lane_id.localeCompare(right.lane_id);
+}
+
+function summarizePlanRelations(plan, relations, generatedAt, artifactPath, portfolioPlanId, planIdByRef) {
+  const orderedRelations = [...relations].sort((left, right) => {
+    const priorityDelta = portfolioRelationPriority(right.primary_relation_type)
+      - portfolioRelationPriority(left.primary_relation_type);
     if (priorityDelta !== 0) {
       return priorityDelta;
     }
     return left.relation_key.localeCompare(right.relation_key);
   });
 
-  const highestPriority = ordered.length
-    ? portfolioRelationPriority(ordered[0].relation_type)
-    : portfolioRelationPriority(PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE);
-  const triggering = ordered.length
-    ? ordered.filter((entry) => portfolioRelationPriority(entry.relation_type) === highestPriority)
-    : [];
-  const coordinationStatus = triggering[0]?.relation_type || PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE;
-  const statusReason = triggering[0]?.status_reason || PORTFOLIO_STATUS_REASON_NO_RELATED_ACTIVE_PLANS;
-  const primaryRelationKey = triggering[0]?.relation_key || "";
-  const triggeringRelationKeys = triggering.map((entry) => entry.relation_key);
-  const relatedPlanRefs = [...new Set(triggering.flatMap((entry) => entry.plan_refs.filter((ref) => ref !== plan.envelope.plan_ref)))].sort();
+  const primaryRelation = orderedRelations[0] || null;
+  const coordinationStatus = primaryRelation?.primary_relation_type || PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE;
+  const statusReason = primaryRelation?.reason || PORTFOLIO_STATUS_REASON_NO_RELATED_ACTIVE_PLANS;
+  const relatedPlanRefs = [...new Set(
+    orderedRelations.flatMap((entry) => entry.plan_refs.filter((ref) => ref !== plan.envelope.plan_ref)),
+  )].sort((left, right) => {
+    const leftPlanId = planIdByRef.get(left) || "";
+    const rightPlanId = planIdByRef.get(right) || "";
+    return leftPlanId.localeCompare(rightPlanId) || left.localeCompare(right);
+  });
+  const triggeringRelationKeys = orderedRelations.map((entry) => entry.relation_key);
 
   return buildPortfolioSummary({
     envelopeFingerprint: plan.envelope_fingerprint,
     coordinationStatus,
     statusReason,
-    primaryRelationKey,
+    primaryRelationKey: primaryRelation?.relation_key || "",
     triggeringRelationKeys,
     relatedPlanRefs,
-    portfolioId: PORTFOLIO_ID,
-    portfolioVersion: PORTFOLIO_VERSION,
+    portfolioPlanId,
+    portfolioPlanVersion: PORTFOLIO_PLAN_VERSION,
     lastRefreshedAt: generatedAt,
     sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
-    advisoryNotes: plan.advisory_notes,
+    advisoryNotes: [],
     artifactPath,
     artifactPresent: true,
     eligible: true,
   });
+}
+
+function laneReason(laneType) {
+  if (laneType === PORTFOLIO_EXECUTION_LANE_REVIEW_HOLD) {
+    return "These plans share the same primary conflict relation and should be reviewed together before implementation proceeds.";
+  }
+  if (laneType === PORTFOLIO_EXECUTION_LANE_MERGE_REVIEW) {
+    return "These plans share the same primary merge-candidate relation and should be reviewed together for a smaller combined cut.";
+  }
+  if (laneType === PORTFOLIO_EXECUTION_LANE_FOUNDATION_FIRST) {
+    return "These plans share the same primary foundation relation and should be reviewed together before dependent execution proceeds.";
+  }
+  return "No higher-priority shared relation applies, so this plan stays in an execution lane.";
+}
+
+function laneIdFor(laneType, members) {
+  const memberKey = members.map((entry) => entry.plan.envelope.plan_id).join("--");
+  return `lane-${laneType.replace(/_/g, "-")}-${memberKey}`;
+}
+
+function buildLane(members, planSummariesById, relationsByKey) {
+  const orderedMembers = [...members].sort(laneMemberSort);
+  const summary = planSummariesById.get(orderedMembers[0].plan.envelope.plan_id);
+  const laneType = laneForPortfolioStatus(summary.coordination_status);
+  const derivedRelationKeys = summary.coordination_status === PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE
+    ? []
+    : [summary.primary_relation_key];
+  const relationConfidences = derivedRelationKeys
+    .map((key) => relationsByKey.get(key)?.confidence)
+    .filter((value) => typeof value === "number");
+  const confidence = Math.min(
+    ...orderedMembers.map((entry) => entry.plan.envelope.surface_confidence),
+    ...(relationConfidences.length ? relationConfidences : [1]),
+  );
+
+  return {
+    lane_id: laneIdFor(laneType, orderedMembers),
+    lane_type: laneType,
+    plan_refs: orderedMembers.map((entry) => entry.plan.envelope.plan_ref),
+    reason: laneReason(laneType),
+    confidence,
+    derived_from_relation_keys: derivedRelationKeys,
+    created_from_envelope_refs: orderedMembers.map((entry) => entry.plan.envelope.plan_ref),
+  };
+}
+
+function buildGlobalExecutionLanes(registeredPlans, planSummariesById, relationsByKey) {
+  const unassigned = new Set(registeredPlans.map((entry) => entry.envelope.plan_id));
+  const sortedPlans = [...registeredPlans].sort((left, right) => {
+    const leftSummary = planSummariesById.get(left.envelope.plan_id);
+    const rightSummary = planSummariesById.get(right.envelope.plan_id);
+    const priorityDelta = portfolioRelationPriority(rightSummary?.coordination_status)
+      - portfolioRelationPriority(leftSummary?.coordination_status);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    const confidenceDelta = left.envelope.surface_confidence - right.envelope.surface_confidence;
+    if (confidenceDelta !== 0) {
+      return confidenceDelta;
+    }
+
+    return left.envelope.plan_ref.localeCompare(right.envelope.plan_ref);
+  });
+
+  const lanes = [];
+  for (const plan of sortedPlans) {
+    if (!unassigned.has(plan.envelope.plan_id)) {
+      continue;
+    }
+
+    const summary = planSummariesById.get(plan.envelope.plan_id);
+    let members;
+    if (summary?.coordination_status === PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE) {
+      members = [{ plan }];
+    } else {
+      members = sortedPlans
+        .filter((entry) => unassigned.has(entry.envelope.plan_id))
+        .filter((entry) => planSummariesById.get(entry.envelope.plan_id)?.primary_relation_key === summary.primary_relation_key)
+        .map((entry) => ({ plan: entry }));
+    }
+
+    for (const member of members) {
+      unassigned.delete(member.plan.envelope.plan_id);
+    }
+    lanes.push(buildLane(members, planSummariesById, relationsByKey));
+  }
+
+  return lanes.sort(laneSort);
 }
 
 export function refreshPortfolio({
@@ -99,6 +222,7 @@ export function refreshPortfolio({
   assertRootOwnedCwd(repoRoot, cwd, "node scripts/theme-portfolio-orchestrator.mjs refresh");
 
   const generatedAt = nowIso();
+  const portfolioPlanId = buildPortfolioPlanId(generatedAt);
   const artifactPath = portfolioArtifactPath(repoRoot);
   const diagnostics = {
     refreshed_at: generatedAt,
@@ -107,7 +231,6 @@ export function refreshPortfolio({
     relation_count: 0,
     skipped_themes: [],
     duplicate_plan_ids: [],
-    advisory_notes: [],
   };
 
   const candidatePlans = [];
@@ -135,9 +258,10 @@ export function refreshPortfolio({
         state.portfolio_coordination.summary,
         {
           envelopeFingerprint,
-          portfolioId: PORTFOLIO_ID,
-          portfolioVersion: PORTFOLIO_VERSION,
+          portfolioPlanId,
+          portfolioPlanVersion: PORTFOLIO_PLAN_VERSION,
           lastRefreshedAt: generatedAt,
+          sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
         },
       );
       skippedStates.push(state);
@@ -161,9 +285,10 @@ export function refreshPortfolio({
         state.portfolio_coordination.summary,
         {
           envelopeFingerprint,
-          portfolioId: PORTFOLIO_ID,
-          portfolioVersion: PORTFOLIO_VERSION,
+          portfolioPlanId,
+          portfolioPlanVersion: PORTFOLIO_PLAN_VERSION,
           lastRefreshedAt: generatedAt,
+          sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
         },
       );
       skippedStates.push(state);
@@ -174,12 +299,10 @@ export function refreshPortfolio({
       state,
       envelope: analysis.envelope,
       envelope_fingerprint: envelopeFingerprint,
-      advisory_notes: [...analysis.advisory_notes],
-      raw_prerequisites: (coordination.envelope?.prerequisites || []).filter((token) => isRawToken(token)),
     });
   }
 
-  candidatePlans.sort((left, right) => left.envelope.plan_id.localeCompare(right.envelope.plan_id) || left.state.slug.localeCompare(right.state.slug));
+  candidatePlans.sort(planSort);
   const seenPlanIds = new Set();
   const registeredPlans = [];
   for (const plan of candidatePlans) {
@@ -193,9 +316,10 @@ export function refreshPortfolio({
         plan.state.portfolio_coordination.summary,
         {
           envelopeFingerprint: plan.envelope_fingerprint,
-          portfolioId: PORTFOLIO_ID,
-          portfolioVersion: PORTFOLIO_VERSION,
+          portfolioPlanId,
+          portfolioPlanVersion: PORTFOLIO_PLAN_VERSION,
           lastRefreshedAt: generatedAt,
+          sharedContractRef: PORTFOLIO_SHARED_CONTRACT_REF,
         },
       );
       skippedStates.push(plan.state);
@@ -210,86 +334,73 @@ export function refreshPortfolio({
 
   for (let index = 0; index < registeredPlans.length; index += 1) {
     for (let compareIndex = index + 1; compareIndex < registeredPlans.length; compareIndex += 1) {
-      const left = registeredPlans[index];
-      const right = registeredPlans[compareIndex];
-      const sharedRawPrerequisites = [...new Set(left.raw_prerequisites.filter((token) => right.raw_prerequisites.includes(token)))].sort();
-      for (const rawPrerequisite of sharedRawPrerequisites) {
-        const note = `Shared raw prerequisite token \`${rawPrerequisite}\` stayed advisory-only; no automatic relation was assigned.`;
-        left.advisory_notes.push(note);
-        right.advisory_notes.push(note);
-        diagnostics.advisory_notes.push(`${left.state.slug}<->${right.state.slug}: ${note}`);
-      }
-
-      const pairRelations = buildPairwisePortfolioRelations(left, right);
+      const pairRelations = buildPairwisePortfolioRelations(registeredPlans[index], registeredPlans[compareIndex]);
       relations.push(...pairRelations);
       for (const relation of pairRelations) {
-        planRelations.get(left.envelope.plan_id)?.push(relation);
-        planRelations.get(right.envelope.plan_id)?.push(relation);
+        const planIds = relation.plan_refs.map((planRef) => registeredPlans.find((entry) => entry.envelope.plan_ref === planRef)?.envelope.plan_id)
+          .filter(Boolean);
+        for (const planId of planIds) {
+          planRelations.get(planId)?.push(relation);
+        }
       }
     }
   }
 
-  diagnostics.registered_plan_count = registeredPlans.length;
-  diagnostics.relation_count = relations.length;
-  diagnostics.duplicate_plan_ids = [...new Set(diagnostics.duplicate_plan_ids)].sort();
-  diagnostics.advisory_notes = [...new Set(diagnostics.advisory_notes)].sort();
-
+  const relationsByKey = new Map(relations.map((relation) => [relation.relation_key, relation]));
+  const planIdByRef = new Map(registeredPlans.map((plan) => [plan.envelope.plan_ref, plan.envelope.plan_id]));
+  const planSummariesById = new Map();
   const registeredPlanArtifacts = [];
+
   for (const plan of registeredPlans) {
-    plan.advisory_notes = [...new Set(plan.advisory_notes)].sort();
     const summary = summarizePlanRelations(
       plan,
       planRelations.get(plan.envelope.plan_id) || [],
       generatedAt,
       artifactPath,
+      portfolioPlanId,
+      planIdByRef,
     );
 
     plan.state.portfolio_coordination.envelope = plan.envelope;
     plan.state.portfolio_coordination.summary = summary;
     saveState(repoRoot, plan.state);
 
-    registeredPlanArtifacts.push({
-      slug: plan.state.slug,
-      plan_id: plan.envelope.plan_id,
+    planSummariesById.set(plan.envelope.plan_id, summary);
+
+    const registeredPlanArtifact = {
       plan_ref: plan.envelope.plan_ref,
+      plan_id: plan.envelope.plan_id,
       plan_version: plan.envelope.plan_version,
-      parent_goal: plan.envelope.parent_goal,
-      affected_surfaces: plan.envelope.affected_surfaces,
       surface_confidence: plan.envelope.surface_confidence,
-      expected_artifacts: plan.envelope.expected_artifacts,
-      prerequisites: plan.envelope.prerequisites,
-      required_resources: plan.envelope.required_resources,
-      envelope_fingerprint: plan.envelope_fingerprint,
       coordination_status: summary.coordination_status,
       status_reason: summary.status_reason,
-      primary_relation_key: summary.primary_relation_key,
-      triggering_relation_keys: summary.triggering_relation_keys,
       related_plan_refs: summary.related_plan_refs,
-      advisory_notes: summary.advisory_notes,
-    });
+      triggering_relation_keys: summary.triggering_relation_keys,
+    };
+    if (summary.primary_relation_key) {
+      registeredPlanArtifact.primary_relation_key = summary.primary_relation_key;
+    }
+    registeredPlanArtifacts.push(registeredPlanArtifact);
   }
 
   for (const skippedState of skippedStates) {
     saveState(repoRoot, skippedState);
   }
 
-  const laneBuckets = new Map(PORTFOLIO_EXECUTION_LANES.map((lane) => [lane, { lane, plan_ids: [], plan_refs: [] }]));
-  for (const plan of registeredPlanArtifacts.sort((left, right) => left.plan_id.localeCompare(right.plan_id))) {
-    const lane = laneForPortfolioStatus(plan.coordination_status);
-    laneBuckets.get(lane)?.plan_ids.push(plan.plan_id);
-    laneBuckets.get(lane)?.plan_refs.push(plan.plan_ref);
-  }
+  registeredPlanArtifacts.sort(registeredPlanArtifactSort);
+  const globalExecutionLanes = buildGlobalExecutionLanes(registeredPlans, planSummariesById, relationsByKey);
+
+  diagnostics.registered_plan_count = registeredPlanArtifacts.length;
+  diagnostics.relation_count = relations.length;
+  diagnostics.duplicate_plan_ids = [...new Set(diagnostics.duplicate_plan_ids)].sort();
 
   const artifact = {
-    schema_version: 1,
-    artifact_type: "portfolio_coordination_plan",
-    portfolio_id: PORTFOLIO_ID,
-    portfolio_version: PORTFOLIO_VERSION,
+    portfolio_plan_id: portfolioPlanId,
+    portfolio_plan_version: PORTFOLIO_PLAN_VERSION,
     generated_at: generatedAt,
-    shared_contract_ref: PORTFOLIO_SHARED_CONTRACT_REF,
     registered_plans: registeredPlanArtifacts,
-    relations: relations.sort((left, right) => left.relation_key.localeCompare(right.relation_key)),
-    global_execution_lanes: PORTFOLIO_EXECUTION_LANES.map((lane) => laneBuckets.get(lane)),
+    relations: [...relations].sort(relationSort),
+    global_execution_lanes: globalExecutionLanes,
     extensions: {
       "quest-agent": {
         refresh_diagnostics: diagnostics,
@@ -304,8 +415,8 @@ export function refreshPortfolio({
     message: "Portfolio coordination artifact refreshed.",
     details: {
       artifact_path: artifactPath,
-      portfolio_id: PORTFOLIO_ID,
-      portfolio_version: PORTFOLIO_VERSION,
+      portfolio_plan_id: portfolioPlanId,
+      portfolio_plan_version: PORTFOLIO_PLAN_VERSION,
       refreshed_at: generatedAt,
       registered_plan_count: registeredPlanArtifacts.length,
       relation_count: relations.length,
@@ -326,8 +437,8 @@ export function statusPortfolio({
       details: {
         artifact_exists: false,
         artifact_path: artifactPath,
-        portfolio_id: PORTFOLIO_ID,
-        portfolio_version: PORTFOLIO_VERSION,
+        portfolio_plan_id: "",
+        portfolio_plan_version: PORTFOLIO_PLAN_VERSION,
         refresh_diagnostics: null,
       },
     });
@@ -340,9 +451,9 @@ export function statusPortfolio({
     details: {
       artifact_exists: true,
       artifact_path: artifactPath,
-      portfolio_id: artifact.portfolio_id,
-      portfolio_version: artifact.portfolio_version,
-      generated_at: artifact.generated_at,
+      portfolio_plan_id: artifact.portfolio_plan_id || "",
+      portfolio_plan_version: artifact.portfolio_plan_version || PORTFOLIO_PLAN_VERSION,
+      generated_at: artifact.generated_at || "",
       registered_plan_count: Array.isArray(artifact.registered_plans) ? artifact.registered_plans.length : 0,
       relation_count: Array.isArray(artifact.relations) ? artifact.relations.length : 0,
       global_execution_lanes: Array.isArray(artifact.global_execution_lanes) ? artifact.global_execution_lanes : [],
@@ -385,7 +496,7 @@ if (isDirectRun) {
   main().catch((error) => {
     if (error instanceof HarnessError) {
       printJson(actionPayload({ status: error.status, message: error.message, details: error.details }));
-      process.exitCode = error.status === "error" ? 1 : 1;
+      process.exitCode = 1;
       return;
     }
 

@@ -29,6 +29,7 @@ import {
 import { evaluatePlanMarkdown } from "../scripts/theme-harness-review-core.mjs";
 import { recordAftercare, recordExplain, startTheme } from "../scripts/theme-ops.mjs";
 import { HarnessError, actionPayload, detectCanonicalRepoRoot, loadState, resolveCheckoutRoots } from "../scripts/theme-harness-lib.mjs";
+import { PORTFOLIO_SHARED_CONTRACT_REF } from "../scripts/theme-portfolio-contract.mjs";
 
 const CURRENT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const reviewFixtures = JSON.parse(
@@ -118,20 +119,18 @@ function benchmarkPackPath(repoRoot, packId) {
 function portfolioEnvelopeSection({
   slug,
   affectedSurfaces = [`path:src/${slug}/**`],
-  expectedArtifacts = ["artifact:code-module"],
+  expectedArtifacts = ["code:runtime-change"],
   prerequisites = ["foundation:fixture-contract"],
   requiredResources = [],
   planId = `plan-${slug}`,
-  planRef = `theme:${slug}`,
-  planVersion = "1",
-  parentGoal = `goal:${slug}`,
-  surfaceConfidence = "confidence:medium",
+  planRef = `output/theme_ops/${slug}-plan.md`,
+  planVersion = 1,
+  surfaceConfidence = 0.8,
 } = {}) {
   const envelope = {
     plan_ref: planRef,
     plan_id: planId,
     plan_version: planVersion,
-    parent_goal: parentGoal,
     affected_surfaces: affectedSurfaces,
     surface_confidence: surfaceConfidence,
     expected_artifacts: expectedArtifacts,
@@ -463,7 +462,7 @@ test("review-plan saves a normalized portfolio envelope and invalidates the save
   assert.equal(first.status, "pass");
 
   let state = loadState(repoRoot, slug);
-  assert.equal(state.portfolio_coordination.envelope.plan_ref, `theme:${slug}`);
+  assert.equal(state.portfolio_coordination.envelope.plan_ref, `output/theme_ops/${slug}-plan.md`);
   assert.equal(state.portfolio_coordination.summary.summary_valid, false);
   assert.equal(state.portfolio_coordination.summary.coordination_status, "not_evaluated");
   assert.equal(state.portfolio_coordination.summary.status_reason, "portfolio_refresh_required");
@@ -472,17 +471,17 @@ test("review-plan saves a normalized portfolio envelope and invalidates the save
   const persistedFingerprint = state.portfolio_coordination.summary.envelope_fingerprint;
   state.portfolio_coordination.summary = {
     coordination_status: "merge_candidate",
-    status_reason: "path_overlap_same_artifact_class",
-    primary_relation_key: "relation:stale",
-    triggering_relation_keys: ["relation:stale"],
-    related_plan_refs: ["theme:other"],
-    portfolio_id: "quest-agent-theme-portfolio",
-    portfolio_version: "1",
+    status_reason: "Old merge relation",
+    primary_relation_key: "merge_candidate:plan-review-portfolio|plan-other:path:src/review-portfolio/**",
+    triggering_relation_keys: ["merge_candidate:plan-review-portfolio|plan-other:path:src/review-portfolio/**"],
+    related_plan_refs: ["plans/other.md"],
+    portfolio_plan_id: "portfolio-coordination-2026-04-08",
+    portfolio_plan_version: 1,
     last_refreshed_at: "2026-04-08T00:00:00.000Z",
     summary_valid: true,
     envelope_fingerprint: persistedFingerprint,
     summary_basis_fingerprint: "stale-basis",
-    shared_contract_ref: "quest-agent:portfolio-coordination/v1",
+    shared_contract_ref: PORTFOLIO_SHARED_CONTRACT_REF,
     advisory_notes: ["stale advisory"],
   };
   writeFileSync(path.join(repoRoot, "output", "theme_ops", `${slug}.json`), `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -517,7 +516,7 @@ test("review-plan fails on invalid portfolio coordination envelope variants", (t
   let state = loadState(repoRoot, slug);
   assert.ok(state.harness.review_results.finding_codes.includes("portfolio_coordination_missing_required_field"));
 
-  const invalidNamespace = basePlan.replace(/"expected_artifacts": \[\n\s+"artifact:code-module"\n\s+\]/u, "\"expected_artifacts\": [\n    \"artifact_class:code-module\"\n  ]");
+  const invalidNamespace = basePlan.replace(/"expected_artifacts": \[\n\s+"code:runtime-change"\n\s+\]/u, "\"expected_artifacts\": [\n    \"artifact:code-module\"\n  ]");
   writeFileSync(planPath, invalidNamespace, "utf8");
   state.harness.workflow_status = "plan_drafted";
   writeFileSync(path.join(repoRoot, "output", "theme_ops", `${slug}.json`), `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -525,6 +524,15 @@ test("review-plan fails on invalid portfolio coordination envelope variants", (t
   assert.equal(result.status, "revise_required");
   state = loadState(repoRoot, slug);
   assert.ok(state.harness.review_results.finding_codes.includes("portfolio_coordination_invalid_namespace"));
+
+  const invalidConfidence = basePlan.replace(/"surface_confidence": 0\.8/u, "\"surface_confidence\": \"confidence:medium\"");
+  writeFileSync(planPath, invalidConfidence, "utf8");
+  state.harness.workflow_status = "plan_drafted";
+  writeFileSync(path.join(repoRoot, "output", "theme_ops", `${slug}.json`), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  result = reviewPlan({ repoRoot, slug });
+  assert.equal(result.status, "revise_required");
+  state = loadState(repoRoot, slug);
+  assert.ok(state.harness.review_results.finding_codes.includes("portfolio_coordination_invalid_value"));
 
   const rawToken = basePlan.replace(/"prerequisites": \[\n\s+"foundation:fixture-contract"\n\s+\]/u, "\"prerequisites\": [\n    \"fixture-contract\"\n  ]");
   writeFileSync(planPath, rawToken, "utf8");

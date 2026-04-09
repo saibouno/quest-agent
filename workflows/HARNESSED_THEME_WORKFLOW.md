@@ -80,7 +80,7 @@
   - Reports the canonical repo root, owner boundary, saved checks, current workflow status, `default` / `exempt` / `legacy` harness guidance, and the shared `merge_gate_*` payload.
   - Surfaces the shared `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action` fields.
   - Surfaces a read-only `bridge_decision` consumer derived from saved `workflow_status` plus saved plan / review / closeout artifacts. In v1 this remains `current_plan_only`; downstream preview and prerequisite binding stay out of scope.
-  - Surfaces the advisory-only portfolio summary fields from saved theme state and masks them to `not_evaluated / portfolio_refresh_required` whenever refresh is missing, summary drift is present, or the theme is no longer portfolio-eligible.
+  - Surfaces the advisory-only portfolio summary fields from saved theme state and masks them to `not_evaluated / portfolio_refresh_required` whenever `summary_valid=false`, refresh is missing, summary drift is present, or the theme is no longer portfolio-eligible.
   - Uses guidance-only labels such as `not_started`, `not_applicable`, and `legacy` when no harness workflow state exists yet.
 - `node scripts/theme-harness.mjs scaffold-plan --slug <slug>`
   - Uses the canonical `brief_path` from theme state when `--brief-path` is omitted.
@@ -90,6 +90,7 @@
 - `node scripts/theme-harness.mjs review-plan --slug <slug>`
   - Runs deterministic structure review through the shared pure evaluator in `scripts/theme-harness-review-core.mjs`.
   - Writes `review_results` with stable `schema_version`, `checklist_results`, and `finding_codes`.
+  - Treats `Portfolio Coordination Envelope` as a mothership-aligned contract surface: canonical namespace families only, numeric `surface_confidence`, and `plan_ref` as a locator rather than a durable identity.
   - Requires explicit `Merge Policy`, `Rollback Class`, and `Publish / handoff boundary` lines in the generated plan summary.
   - The publish / handoff boundary must say whether the lane stops at local closeout + commit or continues through push / PR handling.
   - Records `plan_reviewed` only when findings are empty.
@@ -127,7 +128,7 @@
   - `merge_policy=auto_after_green` uses `close --wait-for-merge` to finish the local merge-and-cleanup path once the shared merge gate is ready.
 - `node scripts/theme-portfolio-orchestrator.mjs refresh`
   - Aggregates only non-terminal themes that already have a saved portfolio coordination envelope.
-  - Writes the repo-wide advisory artifact to `output/theme_ops/portfolio/latest.json`.
+  - Writes the repo-wide advisory artifact to `output/theme_ops/portfolio/latest.json` using the canonical `Portfolio Coordination Plan` top-level shape.
   - Updates saved portfolio summaries in theme state without changing closeout readiness, merge-gate behavior, or benchmark adapter-shell semantics.
 - `node scripts/theme-portfolio-orchestrator.mjs status`
   - Reads the latest advisory artifact and repo-local diagnostics from `extensions.quest-agent.refresh_diagnostics`.
@@ -166,6 +167,7 @@
 - `status` and `close` also expose the shared durable-context fields: `context_promotion_required`, `context_promotion_state`, `context_promotion_reason`, and `context_promotion_next_action`.
 - Portfolio coordination stays advisory-only in this adopter v1.
 - `global_execution_lanes[]` is a display / triage bucket only and must not be interpreted as a scheduler gate, finalize permission, or merge gate.
+- This repo's canonical close surface remains `node scripts/theme-ops.mjs close --slug <slug>`; v1 does not add `close --finalize`.
 - Portfolio refresh must not change `close`, `scaffold-closeout`, `close --wait-for-merge`, or benchmark adapter-shell behavior.
 - `approved` and `rejected` remain human-only workflow states.
 - Durable-context promotion is repo-local to `explain -> scaffold-closeout` in v1, with `scripts/promote-durable-context.mjs` as the helper and troubleshooting entrypoint.

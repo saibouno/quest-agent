@@ -2,9 +2,14 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-export const PORTFOLIO_SHARED_CONTRACT_REF = "quest-agent:portfolio-coordination/v1";
-export const PORTFOLIO_ID = "quest-agent-theme-portfolio";
-export const PORTFOLIO_VERSION = "1";
+export const PORTFOLIO_SHARED_CONTRACT_REF = [
+  "C:/Users/oatyu/デスクトップ/codex-autonomy-mothership/docs/runbooks/portfolio-orchestration-contract.md",
+  "C:/Users/oatyu/デスクトップ/codex-autonomy-mothership/docs/runbooks/portfolio-orchestration-v1-stability.md",
+  "C:/Users/oatyu/デスクトップ/codex-autonomy-mothership/docs/context/decisions/2026-04-09-portfolio-orchestration-v1-stabilization.md",
+].join(" | ");
+
+export const PORTFOLIO_PLAN_ID_PREFIX = "portfolio-coordination";
+export const PORTFOLIO_PLAN_VERSION = 1;
 export const PORTFOLIO_COORDINATION_SECTION = "Portfolio Coordination Envelope";
 
 export const PORTFOLIO_COORDINATION_STATUS_NOT_EVALUATED = "not_evaluated";
@@ -14,10 +19,10 @@ export const PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE = "merge_candidate";
 export const PORTFOLIO_COORDINATION_STATUS_CONFLICT_REVIEW = "conflict_review";
 
 export const PORTFOLIO_STATUS_REASON_REFRESH_REQUIRED = "portfolio_refresh_required";
-export const PORTFOLIO_STATUS_REASON_NO_RELATED_ACTIVE_PLANS = "no_related_active_plans";
-export const PORTFOLIO_STATUS_REASON_PATH_OVERLAP_SAME_ARTIFACT_CLASS = "path_overlap_same_artifact_class";
-export const PORTFOLIO_STATUS_REASON_PATH_OVERLAP_MIXED_ARTIFACT_CLASS = "path_overlap_mixed_artifact_class";
-export const PORTFOLIO_STATUS_REASON_SHARED_FOUNDATION = "shared_foundation_prerequisite";
+export const PORTFOLIO_STATUS_REASON_NO_RELATED_ACTIVE_PLANS = "No higher-priority shared relation applies, so this plan stays independently executable.";
+export const PORTFOLIO_STATUS_REASON_PATH_OVERLAP_SAME_ARTIFACT_CLASS = "This plan shares a guaranteed surface overlap and an exact artifact token with another plan, so a combined re-cut review may reduce coordination cost.";
+export const PORTFOLIO_STATUS_REASON_PATH_OVERLAP_MIXED_ARTIFACT_CLASS = "This plan shares a guaranteed surface overlap without an exact artifact match, so it should stay in review before independent execution proceeds.";
+export const PORTFOLIO_STATUS_REASON_SHARED_FOUNDATION = "This plan shares a normalized foundation prerequisite with another plan and may need foundation-first sequencing.";
 
 export const PORTFOLIO_EXECUTION_LANE_REVIEW_HOLD = "review_hold";
 export const PORTFOLIO_EXECUTION_LANE_MERGE_REVIEW = "merge_review";
@@ -38,13 +43,15 @@ export const PORTFOLIO_REVIEW_FINDING_INVALID_NAMESPACE = "portfolio_coordinatio
 export const PORTFOLIO_REVIEW_FINDING_INVALID_VALUE = "portfolio_coordination_invalid_value";
 
 const TOKEN_PATTERN = /^([a-z][a-z0-9_-]*):(.*)$/u;
-const PLAN_REF_NAMESPACES = new Set(["plan", "theme", "state"]);
-const SURFACE_NAMESPACES = new Set(["api", "contract", "path", "prompt", "route", "state", "surface", "workflow"]);
-const ARTIFACT_NAMESPACES = new Set(["artifact"]);
-const PREREQUISITE_NAMESPACES = new Set(["artifact", "contract", "decision", "dependency", "foundation"]);
-const RESOURCE_NAMESPACES = new Set(["env", "resource", "service", "team"]);
-const SURFACE_CONFIDENCE_VALUES = new Set(["confidence:high", "confidence:medium", "confidence:low"]);
+const SURFACE_NAMESPACES = new Set(["api", "contract", "path", "report", "schema", "ui", "workflow"]);
+const ARTIFACT_NAMESPACES = new Set(["code", "config", "context", "doc", "handoff", "report", "test"]);
+const PREREQUISITE_NAMESPACES = new Set(["approval", "artifact", "contract", "decision", "foundation"]);
+const RESOURCE_NAMESPACES = new Set(["env", "human", "repo", "service", "tool", "workspace"]);
 const TERMINAL_WORKFLOW_STATUSES = new Set(["approved", "rejected"]);
+const RELATIONLESS_STATUSES = new Set([
+  PORTFOLIO_COORDINATION_STATUS_NOT_EVALUATED,
+  PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE,
+]);
 
 const PORTFOLIO_STATUS_PRIORITY = new Map([
   [PORTFOLIO_COORDINATION_STATUS_CONFLICT_REVIEW, 4],
@@ -97,6 +104,52 @@ function normalizeRequiredString(value, label) {
     );
   }
   return normalized;
+}
+
+function normalizeOptionalInteger(value) {
+  if (value === "" || value === null || value === undefined) {
+    return null;
+  }
+
+  const numeric = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isInteger(numeric) || numeric < 1) {
+    return null;
+  }
+
+  return numeric;
+}
+
+function normalizeRequiredInteger(value, label) {
+  const numeric = normalizeOptionalInteger(value);
+  if (numeric === null) {
+    throw contractError(
+      PORTFOLIO_REVIEW_FINDING_INVALID_VALUE,
+      `${label} must be a positive integer.`,
+      { field: label, value },
+    );
+  }
+  return numeric;
+}
+
+function normalizeOptionalNumber(value) {
+  if (value === "" || value === null || value === undefined) {
+    return Number.NaN;
+  }
+
+  return typeof value === "number" ? value : Number(String(value).trim());
+}
+
+function normalizeRequiredConfidence(value, label = "surface_confidence") {
+  const numeric = normalizeOptionalNumber(value);
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 1) {
+    throw contractError(
+      PORTFOLIO_REVIEW_FINDING_INVALID_VALUE,
+      `${label} must be a numeric float between 0.0 and 1.0.`,
+      { field: label, value },
+    );
+  }
+
+  return Number(numeric);
 }
 
 function normalizeStringList(values) {
@@ -154,34 +207,11 @@ function normalizeNamespacedToken(value, label, allowedNamespaces) {
     throw contractError(
       PORTFOLIO_REVIEW_FINDING_INVALID_NAMESPACE,
       `${label} uses an unsupported namespace.`,
-      { field: label, namespace, value: value },
+      { field: label, namespace, value },
     );
   }
 
   return `${namespace}:${normalizeTokenBody(namespace, body)}`;
-}
-
-function analyzeNamespacedToken(value, label, allowedNamespaces) {
-  try {
-    return {
-      token: normalizeNamespacedToken(value, label, allowedNamespaces),
-      advisory_notes: [],
-    };
-  } catch (error) {
-    if (error?.code === PORTFOLIO_REVIEW_FINDING_RAW_TOKEN) {
-      return {
-        token: "",
-        advisory_notes: [`Ignored raw ${label} token: \`${normalizeOptionalString(value)}\`.`],
-      };
-    }
-    if (error?.code === PORTFOLIO_REVIEW_FINDING_INVALID_NAMESPACE) {
-      return {
-        token: "",
-        advisory_notes: [`Ignored unsupported ${label} namespace: \`${normalizeOptionalString(value)}\`.`],
-      };
-    }
-    throw error;
-  }
 }
 
 function normalizeStrictTokenList(values, label, allowedNamespaces) {
@@ -197,34 +227,7 @@ function normalizeStrictTokenList(values, label, allowedNamespaces) {
     value,
     `${label}[${index}]`,
     allowedNamespaces,
-  )))]
-    .sort();
-}
-
-function analyzeTokenList(values, label, allowedNamespaces) {
-  const advisoryNotes = [];
-  const tokens = [];
-  if (!Array.isArray(values)) {
-    return {
-      tokens,
-      advisory_notes: advisoryNotes,
-      had_field: false,
-    };
-  }
-
-  for (const [index, value] of values.entries()) {
-    const analyzed = analyzeNamespacedToken(value, `${label}[${index}]`, allowedNamespaces);
-    if (analyzed.token) {
-      tokens.push(analyzed.token);
-    }
-    advisoryNotes.push(...analyzed.advisory_notes);
-  }
-
-  return {
-    tokens: [...new Set(tokens)].sort(),
-    advisory_notes: [...new Set(advisoryNotes)].sort(),
-    had_field: true,
-  };
+  )))].sort();
 }
 
 function ensureEnvelopeShape(value) {
@@ -235,10 +238,11 @@ function ensureEnvelopeShape(value) {
   return {
     plan_ref: normalizeOptionalString(value.plan_ref),
     plan_id: normalizeOptionalString(value.plan_id),
-    plan_version: normalizeOptionalString(value.plan_version),
-    parent_goal: normalizeOptionalString(value.parent_goal),
+    plan_version: value.plan_version,
+    plan_title: normalizeOptionalString(value.plan_title),
+    summary: normalizeOptionalString(value.summary),
     affected_surfaces: normalizeStringList(value.affected_surfaces),
-    surface_confidence: normalizeOptionalString(value.surface_confidence).toLowerCase(),
+    surface_confidence: value.surface_confidence,
     expected_artifacts: normalizeStringList(value.expected_artifacts),
     prerequisites: normalizeStringList(value.prerequisites),
     required_resources: normalizeStringList(value.required_resources),
@@ -253,8 +257,8 @@ function ensureSummaryShape(value) {
     primary_relation_key: normalizeOptionalString(summary.primary_relation_key),
     triggering_relation_keys: normalizeStringList(summary.triggering_relation_keys),
     related_plan_refs: normalizeStringList(summary.related_plan_refs),
-    portfolio_id: normalizeOptionalString(summary.portfolio_id),
-    portfolio_version: normalizeOptionalString(summary.portfolio_version),
+    portfolio_plan_id: normalizeOptionalString(summary.portfolio_plan_id),
+    portfolio_plan_version: normalizeOptionalInteger(summary.portfolio_plan_version),
     last_refreshed_at: normalizeOptionalString(summary.last_refreshed_at),
     summary_valid: Boolean(summary.summary_valid),
     envelope_fingerprint: normalizeOptionalString(summary.envelope_fingerprint),
@@ -271,8 +275,8 @@ export function initialInvalidPortfolioSummary(overrides = {}) {
     primary_relation_key: "",
     triggering_relation_keys: [],
     related_plan_refs: [],
-    portfolio_id: "",
-    portfolio_version: "",
+    portfolio_plan_id: "",
+    portfolio_plan_version: null,
     last_refreshed_at: "",
     summary_valid: false,
     envelope_fingerprint: "",
@@ -285,15 +289,15 @@ export function initialInvalidPortfolioSummary(overrides = {}) {
 
 export function invalidatePortfolioSummary(summary = {}, {
   envelopeFingerprint = "",
-  portfolioId = "",
-  portfolioVersion = "",
+  portfolioPlanId = "",
+  portfolioPlanVersion = null,
   lastRefreshedAt = "",
   sharedContractRef = PORTFOLIO_SHARED_CONTRACT_REF,
 } = {}) {
   const normalized = ensureSummaryShape(summary);
   return initialInvalidPortfolioSummary({
-    portfolio_id: portfolioId,
-    portfolio_version: portfolioVersion,
+    portfolio_plan_id: portfolioPlanId,
+    portfolio_plan_version: portfolioPlanVersion,
     last_refreshed_at: lastRefreshedAt,
     envelope_fingerprint: envelopeFingerprint || normalized.envelope_fingerprint,
     shared_contract_ref: sharedContractRef || normalized.shared_contract_ref || PORTFOLIO_SHARED_CONTRACT_REF,
@@ -316,117 +320,46 @@ export function normalizePortfolioCoordinationEnvelope(value) {
     );
   }
 
-  const surfaceConfidence = normalizeNamespacedToken(
-    value.surface_confidence,
-    "surface_confidence",
-    new Set(["confidence"]),
-  );
-  if (!SURFACE_CONFIDENCE_VALUES.has(surfaceConfidence)) {
-    throw contractError(
-      PORTFOLIO_REVIEW_FINDING_INVALID_VALUE,
-      "surface_confidence must be one of confidence:high|medium|low.",
-      { field: "surface_confidence", value: surfaceConfidence },
-    );
-  }
-
-  return {
-    plan_ref: normalizeNamespacedToken(value.plan_ref, "plan_ref", PLAN_REF_NAMESPACES),
+  const normalized = {
+    plan_ref: normalizeRequiredString(value.plan_ref, "plan_ref"),
     plan_id: normalizeRequiredString(value.plan_id, "plan_id"),
-    plan_version: normalizeRequiredString(value.plan_version, "plan_version"),
-    parent_goal: normalizeRequiredString(value.parent_goal, "parent_goal"),
+    plan_version: normalizeRequiredInteger(value.plan_version, "plan_version"),
     affected_surfaces: normalizeStrictTokenList(value.affected_surfaces, "affected_surfaces", SURFACE_NAMESPACES),
-    surface_confidence: surfaceConfidence,
+    surface_confidence: normalizeRequiredConfidence(value.surface_confidence, "surface_confidence"),
     expected_artifacts: normalizeStrictTokenList(value.expected_artifacts, "expected_artifacts", ARTIFACT_NAMESPACES),
     prerequisites: normalizeStrictTokenList(value.prerequisites, "prerequisites", PREREQUISITE_NAMESPACES),
     required_resources: Array.isArray(value.required_resources)
       ? normalizeStrictTokenList(value.required_resources, "required_resources", RESOURCE_NAMESPACES)
       : [],
   };
+
+  const planTitle = normalizeOptionalString(value.plan_title);
+  if (planTitle) {
+    normalized.plan_title = planTitle;
+  }
+
+  const summary = normalizeOptionalString(value.summary);
+  if (summary) {
+    normalized.summary = summary;
+  }
+
+  return normalized;
 }
 
 export function analyzePortfolioCoordinationEnvelope(value) {
-  const rawEnvelope = ensureEnvelopeShape(value);
-  if (!rawEnvelope) {
+  try {
+    return {
+      envelope: normalizePortfolioCoordinationEnvelope(value),
+      advisory_notes: [],
+      errors: [],
+    };
+  } catch (error) {
     return {
       envelope: null,
       advisory_notes: [],
-      errors: ["Envelope must be an object."],
+      errors: [error instanceof Error ? error.message : String(error)],
     };
   }
-
-  const errors = [];
-  let planRef = "";
-  let surfaceConfidence = "";
-
-  try {
-    planRef = normalizeNamespacedToken(rawEnvelope.plan_ref, "plan_ref", PLAN_REF_NAMESPACES);
-  } catch (error) {
-    errors.push(error.message);
-  }
-
-  try {
-    surfaceConfidence = normalizeNamespacedToken(rawEnvelope.surface_confidence, "surface_confidence", new Set(["confidence"]));
-    if (!SURFACE_CONFIDENCE_VALUES.has(surfaceConfidence)) {
-      throw contractError(PORTFOLIO_REVIEW_FINDING_INVALID_VALUE, "surface_confidence must be confidence:high|medium|low.");
-    }
-  } catch (error) {
-    errors.push(error.message);
-  }
-
-  const affectedSurfaces = analyzeTokenList(rawEnvelope.affected_surfaces, "affected_surfaces", SURFACE_NAMESPACES);
-  const expectedArtifacts = analyzeTokenList(rawEnvelope.expected_artifacts, "expected_artifacts", ARTIFACT_NAMESPACES);
-  const prerequisites = analyzeTokenList(rawEnvelope.prerequisites, "prerequisites", PREREQUISITE_NAMESPACES);
-  const requiredResources = analyzeTokenList(rawEnvelope.required_resources, "required_resources", RESOURCE_NAMESPACES);
-
-  if (!rawEnvelope.plan_id) {
-    errors.push("plan_id must be present.");
-  }
-  if (!rawEnvelope.plan_version) {
-    errors.push("plan_version must be present.");
-  }
-  if (!rawEnvelope.parent_goal) {
-    errors.push("parent_goal must be present.");
-  }
-  if (!affectedSurfaces.had_field) {
-    errors.push("affected_surfaces must be present.");
-  }
-  if (!expectedArtifacts.had_field) {
-    errors.push("expected_artifacts must be present.");
-  }
-  if (!prerequisites.had_field) {
-    errors.push("prerequisites must be present.");
-  }
-
-  const advisoryNotes = [
-    ...affectedSurfaces.advisory_notes,
-    ...expectedArtifacts.advisory_notes,
-    ...prerequisites.advisory_notes,
-    ...requiredResources.advisory_notes,
-  ];
-
-  if (errors.length) {
-    return {
-      envelope: null,
-      advisory_notes: [...new Set(advisoryNotes)].sort(),
-      errors,
-    };
-  }
-
-  return {
-    envelope: {
-      plan_ref: planRef,
-      plan_id: rawEnvelope.plan_id,
-      plan_version: rawEnvelope.plan_version,
-      parent_goal: rawEnvelope.parent_goal,
-      affected_surfaces: affectedSurfaces.tokens,
-      surface_confidence: surfaceConfidence,
-      expected_artifacts: expectedArtifacts.tokens,
-      prerequisites: prerequisites.tokens,
-      required_resources: requiredResources.tokens,
-    },
-    advisory_notes: [...new Set(advisoryNotes)].sort(),
-    errors: [],
-  };
 }
 
 export function extractPortfolioEnvelopeJson(sectionText) {
@@ -487,18 +420,13 @@ export function portfolioArtifactPath(repoRoot) {
   return path.join(repoRoot, "output", "theme_ops", "portfolio", "latest.json");
 }
 
-export function portfolioRelationPriority(status) {
-  return PORTFOLIO_STATUS_PRIORITY.get(String(status || "")) ?? 0;
+export function buildPortfolioPlanId(generatedAt) {
+  const datePortion = normalizeRequiredString(generatedAt, "generated_at").slice(0, 10);
+  return `${PORTFOLIO_PLAN_ID_PREFIX}-${datePortion}`;
 }
 
-export function portfolioRelationConfidence(status) {
-  if (status === PORTFOLIO_COORDINATION_STATUS_CONFLICT_REVIEW || status === PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE) {
-    return "high";
-  }
-  if (status === PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE) {
-    return "medium";
-  }
-  return "low";
+export function portfolioRelationPriority(status) {
+  return PORTFOLIO_STATUS_PRIORITY.get(String(status || "")) ?? 0;
 }
 
 function tokenBody(token) {
@@ -506,59 +434,78 @@ function tokenBody(token) {
   return match ? normalizeTokenBody(match[1], match[2]) : "";
 }
 
-export function artifactClassesForEnvelope(envelope) {
-  return normalizeStringList(envelope?.expected_artifacts).map((token) => tokenBody(token));
-}
-
-export function foundationPrerequisitesForEnvelope(envelope) {
-  return normalizeStringList(envelope?.prerequisites)
-    .filter((token) => String(token).toLowerCase().startsWith("foundation:"));
-}
-
 function pathPrefixSegments(token) {
   const body = tokenBody(token);
-  const segments = body.split("/").filter(Boolean);
-  const prefix = [];
-  for (const segment of segments) {
-    if (segment.includes("*")) {
-      break;
-    }
-    prefix.push(segment);
-  }
-  return prefix;
+  const normalized = body.endsWith("/**") ? body.slice(0, -3) : body;
+  return normalized.split("/").filter(Boolean);
 }
 
 function segmentPrefixMatch(left, right) {
   return left.length <= right.length && left.every((segment, index) => segment === right[index]);
 }
 
-export function surfacesOverlap(leftToken, rightToken) {
-  if (!String(leftToken).startsWith("path:") || !String(rightToken).startsWith("path:")) {
-    return false;
+function guaranteedOverlapBasis(leftToken, rightToken) {
+  const left = String(leftToken || "").toLowerCase();
+  const right = String(rightToken || "").toLowerCase();
+  if (left === right) {
+    return left;
   }
 
-  const leftPrefix = pathPrefixSegments(leftToken);
-  const rightPrefix = pathPrefixSegments(rightToken);
+  if (!left.startsWith("path:") || !right.startsWith("path:")) {
+    return "";
+  }
+
+  const leftPrefix = pathPrefixSegments(left);
+  const rightPrefix = pathPrefixSegments(right);
   if (!leftPrefix.length || !rightPrefix.length) {
-    return false;
+    return "";
   }
-  return segmentPrefixMatch(leftPrefix, rightPrefix) || segmentPrefixMatch(rightPrefix, leftPrefix);
+
+  if (segmentPrefixMatch(leftPrefix, rightPrefix) || segmentPrefixMatch(rightPrefix, leftPrefix)) {
+    return [left, right].sort()[0];
+  }
+
+  return "";
 }
 
-function overlapDiscriminator(leftSurface, rightSurface) {
-  return [leftSurface, rightSurface].sort().join("|");
+export function surfacesOverlap(leftToken, rightToken) {
+  return Boolean(guaranteedOverlapBasis(leftToken, rightToken));
 }
 
-function buildRelationKeyMaterial(relationType, planPair, discriminator) {
-  return {
-    relation_type: relationType,
-    normalized_plan_pair: [...planPair].sort(),
-    normalized_discriminator: String(discriminator || "").trim().toLowerCase(),
-  };
+function relationReason(relationType, discriminator, sharedExpectedArtifacts = []) {
+  if (relationType === PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE) {
+    return `Both plans share the normalized surface \`${discriminator}\` and the exact artifact token(s) ${sharedExpectedArtifacts.join(", ")}.`;
+  }
+
+  if (relationType === PORTFOLIO_COORDINATION_STATUS_CONFLICT_REVIEW) {
+    return `Both plans share the normalized surface \`${discriminator}\` without an exact shared artifact token, so they should stay in review before independent execution proceeds.`;
+  }
+
+  return `Both plans depend on the normalized prerequisite \`${discriminator}\`.`;
+}
+
+function relationReviewPoints(relationType) {
+  if (relationType === PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE) {
+    return [
+      "Can the combined review surface be made smaller before any shared re-cut is attempted?",
+    ];
+  }
+
+  if (relationType === PORTFOLIO_COORDINATION_STATUS_CONFLICT_REVIEW) {
+    return [
+      "Should one plan wait until the overlap is reviewed or reduced before implementation continues?",
+    ];
+  }
+
+  return [
+    "Should the shared foundation land once before either dependent plan continues independently?",
+  ];
 }
 
 export function buildPortfolioRelationKey(relationType, planPair, discriminator) {
-  return `relation:${relationType}:${stableHash(buildRelationKeyMaterial(relationType, planPair, discriminator))}`;
+  const normalizedPair = [...planPair].sort();
+  const normalizedDiscriminator = normalizeRequiredString(discriminator, "normalized_discriminator").toLowerCase();
+  return `${relationType}:${normalizedPair.join("|")}:${normalizedDiscriminator}`;
 }
 
 export function portfolioStatusReasonForRelation(relationType) {
@@ -587,75 +534,75 @@ export function laneForPortfolioStatus(status) {
   return PORTFOLIO_EXECUTION_LANE_EXECUTION;
 }
 
-export function buildPairwisePortfolioRelations(leftPlan, rightPlan) {
-  const leftEnvelope = leftPlan.envelope;
-  const rightEnvelope = rightPlan.envelope;
-  const planPair = [leftEnvelope.plan_id, rightEnvelope.plan_id].sort();
-  const overlapDiscriminators = [];
+function orderEnvelopesByPlanId(leftEnvelope, rightEnvelope) {
+  return leftEnvelope.plan_id.localeCompare(rightEnvelope.plan_id)
+    || leftEnvelope.plan_ref.localeCompare(rightEnvelope.plan_ref);
+}
 
-  for (const leftSurface of leftEnvelope.affected_surfaces) {
-    for (const rightSurface of rightEnvelope.affected_surfaces) {
-      if (surfacesOverlap(leftSurface, rightSurface)) {
-        overlapDiscriminators.push(overlapDiscriminator(leftSurface, rightSurface));
+function exactTokenIntersection(leftTokens, rightTokens) {
+  return [...new Set(normalizeStringList(leftTokens).filter((token) => normalizeStringList(rightTokens).includes(token)))].sort();
+}
+
+export function buildPairwisePortfolioRelations(leftPlan, rightPlan) {
+  const orderedEnvelopes = [leftPlan.envelope, rightPlan.envelope].sort(orderEnvelopesByPlanId);
+  const [firstEnvelope, secondEnvelope] = orderedEnvelopes;
+  const planIds = orderedEnvelopes.map((entry) => entry.plan_id);
+  const planRefs = orderedEnvelopes.map((entry) => entry.plan_ref);
+  const relationConfidence = Math.min(firstEnvelope.surface_confidence, secondEnvelope.surface_confidence);
+
+  const overlapBases = [];
+  for (const leftSurface of firstEnvelope.affected_surfaces) {
+    for (const rightSurface of secondEnvelope.affected_surfaces) {
+      const basis = guaranteedOverlapBasis(leftSurface, rightSurface);
+      if (basis) {
+        overlapBases.push(basis);
       }
     }
   }
 
-  const sharedArtifactClasses = artifactClassesForEnvelope(leftEnvelope)
-    .filter((artifactClass) => artifactClassesForEnvelope(rightEnvelope).includes(artifactClass));
+  const sharedExpectedArtifacts = exactTokenIntersection(firstEnvelope.expected_artifacts, secondEnvelope.expected_artifacts);
+  const sharedFoundations = exactTokenIntersection(
+    firstEnvelope.prerequisites.filter((token) => token.startsWith("foundation:")),
+    secondEnvelope.prerequisites.filter((token) => token.startsWith("foundation:")),
+  );
 
-  if (overlapDiscriminators.length) {
-    const relationType = sharedArtifactClasses.length
+  const relations = [];
+  const createdFromEnvelopeRefs = [...planRefs];
+
+  if (overlapBases.length) {
+    const discriminator = [...new Set(overlapBases)].sort()[0];
+    const relationType = sharedExpectedArtifacts.length
       ? PORTFOLIO_COORDINATION_STATUS_MERGE_CANDIDATE
       : PORTFOLIO_COORDINATION_STATUS_CONFLICT_REVIEW;
-    return [...new Set(overlapDiscriminators)].sort().map((discriminator) => ({
-      relation_key: buildPortfolioRelationKey(relationType, planPair, discriminator),
-      relation_type: relationType,
-      relation_confidence: portfolioRelationConfidence(relationType),
-      status_reason: portfolioStatusReasonForRelation(relationType),
-      plan_ids: planPair,
-      plan_refs: [leftEnvelope.plan_ref, rightEnvelope.plan_ref].sort(),
-      discriminator,
-      overlap_basis: discriminator.split("|"),
-      shared_foundations: [],
-      shared_artifact_classes: [...new Set(sharedArtifactClasses)].sort(),
-    }));
+
+    relations.push({
+      relation_key: buildPortfolioRelationKey(relationType, planIds, discriminator),
+      plan_refs: planRefs,
+      primary_relation_type: relationType,
+      reason: relationReason(relationType, discriminator, sharedExpectedArtifacts),
+      review_points: relationReviewPoints(relationType),
+      confidence: relationConfidence,
+      created_from_envelope_refs: createdFromEnvelopeRefs,
+    });
   }
 
-  const sharedFoundations = foundationPrerequisitesForEnvelope(leftEnvelope)
-    .filter((token) => foundationPrerequisitesForEnvelope(rightEnvelope).includes(token));
-  if (sharedFoundations.length) {
-    return [...new Set(sharedFoundations)].sort().map((discriminator) => ({
+  for (const sharedFoundation of sharedFoundations) {
+    relations.push({
       relation_key: buildPortfolioRelationKey(
         PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE,
-        planPair,
-        discriminator,
+        planIds,
+        sharedFoundation,
       ),
-      relation_type: PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE,
-      relation_confidence: portfolioRelationConfidence(PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE),
-      status_reason: portfolioStatusReasonForRelation(PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE),
-      plan_ids: planPair,
-      plan_refs: [leftEnvelope.plan_ref, rightEnvelope.plan_ref].sort(),
-      discriminator,
-      overlap_basis: [],
-      shared_foundations: [discriminator],
-      shared_artifact_classes: [],
-    }));
+      plan_refs: planRefs,
+      primary_relation_type: PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE,
+      reason: relationReason(PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE, sharedFoundation),
+      review_points: relationReviewPoints(PORTFOLIO_COORDINATION_STATUS_SHARED_FOUNDATION_CANDIDATE),
+      confidence: relationConfidence,
+      created_from_envelope_refs: createdFromEnvelopeRefs,
+    });
   }
 
-  const discriminator = "disjoint_surfaces";
-  return [{
-    relation_key: buildPortfolioRelationKey(PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE, planPair, discriminator),
-    relation_type: PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE,
-    relation_confidence: portfolioRelationConfidence(PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE),
-    status_reason: portfolioStatusReasonForRelation(PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE),
-    plan_ids: planPair,
-    plan_refs: [leftEnvelope.plan_ref, rightEnvelope.plan_ref].sort(),
-    discriminator,
-    overlap_basis: [],
-    shared_foundations: [],
-    shared_artifact_classes: [],
-  }];
+  return relations.sort((left, right) => left.relation_key.localeCompare(right.relation_key));
 }
 
 export function computePortfolioSummaryBasisFingerprint({
@@ -665,8 +612,8 @@ export function computePortfolioSummaryBasisFingerprint({
   primaryRelationKey = "",
   triggeringRelationKeys = [],
   relatedPlanRefs = [],
-  portfolioId = "",
-  portfolioVersion = "",
+  portfolioPlanId = "",
+  portfolioPlanVersion = null,
   lastRefreshedAt = "",
   sharedContractRef = PORTFOLIO_SHARED_CONTRACT_REF,
   artifactPath = "",
@@ -680,8 +627,8 @@ export function computePortfolioSummaryBasisFingerprint({
     primary_relation_key: primaryRelationKey,
     triggering_relation_keys: normalizeStringList(triggeringRelationKeys),
     related_plan_refs: normalizeStringList(relatedPlanRefs),
-    portfolio_id: portfolioId,
-    portfolio_version: portfolioVersion,
+    portfolio_plan_id: portfolioPlanId,
+    portfolio_plan_version: portfolioPlanVersion,
     last_refreshed_at: lastRefreshedAt,
     shared_contract_ref: sharedContractRef,
     artifact_path: artifactPath,
@@ -697,8 +644,8 @@ export function buildPortfolioSummary({
   primaryRelationKey = "",
   triggeringRelationKeys = [],
   relatedPlanRefs = [],
-  portfolioId = PORTFOLIO_ID,
-  portfolioVersion = PORTFOLIO_VERSION,
+  portfolioPlanId = "",
+  portfolioPlanVersion = PORTFOLIO_PLAN_VERSION,
   lastRefreshedAt = "",
   sharedContractRef = PORTFOLIO_SHARED_CONTRACT_REF,
   advisoryNotes = [],
@@ -706,35 +653,53 @@ export function buildPortfolioSummary({
   artifactPresent = true,
   eligible = true,
 } = {}) {
+  const normalizedStatus = String(coordinationStatus || PORTFOLIO_COORDINATION_STATUS_PARALLEL_SAFE);
+  const relationless = RELATIONLESS_STATUSES.has(normalizedStatus);
+  const normalizedPrimaryRelationKey = relationless ? "" : normalizeOptionalString(primaryRelationKey);
+  const normalizedTriggeringRelationKeys = relationless ? [] : normalizeStringList(triggeringRelationKeys);
+  const normalizedRelatedPlanRefs = relationless ? [] : normalizeStringList(relatedPlanRefs);
+
   return {
-    coordination_status: coordinationStatus,
-    status_reason: statusReason,
-    primary_relation_key: primaryRelationKey,
-    triggering_relation_keys: normalizeStringList(triggeringRelationKeys),
-    related_plan_refs: normalizeStringList(relatedPlanRefs),
-    portfolio_id: portfolioId,
-    portfolio_version: portfolioVersion,
-    last_refreshed_at: lastRefreshedAt,
+    coordination_status: normalizedStatus,
+    status_reason: normalizeOptionalString(statusReason) || PORTFOLIO_STATUS_REASON_NO_RELATED_ACTIVE_PLANS,
+    primary_relation_key: normalizedPrimaryRelationKey,
+    triggering_relation_keys: normalizedTriggeringRelationKeys,
+    related_plan_refs: normalizedRelatedPlanRefs,
+    portfolio_plan_id: normalizeOptionalString(portfolioPlanId),
+    portfolio_plan_version: normalizeOptionalInteger(portfolioPlanVersion),
+    last_refreshed_at: normalizeOptionalString(lastRefreshedAt),
     summary_valid: true,
-    envelope_fingerprint: envelopeFingerprint,
+    envelope_fingerprint: normalizeOptionalString(envelopeFingerprint),
     summary_basis_fingerprint: computePortfolioSummaryBasisFingerprint({
       envelopeFingerprint,
-      coordinationStatus,
+      coordinationStatus: normalizedStatus,
       statusReason,
-      primaryRelationKey,
-      triggeringRelationKeys,
-      relatedPlanRefs,
-      portfolioId,
-      portfolioVersion,
+      primaryRelationKey: normalizedPrimaryRelationKey,
+      triggeringRelationKeys: normalizedTriggeringRelationKeys,
+      relatedPlanRefs: normalizedRelatedPlanRefs,
+      portfolioPlanId,
+      portfolioPlanVersion,
       lastRefreshedAt,
       sharedContractRef,
       artifactPath,
       artifactPresent,
       eligible,
     }),
-    shared_contract_ref: sharedContractRef,
+    shared_contract_ref: normalizeOptionalString(sharedContractRef) || PORTFOLIO_SHARED_CONTRACT_REF,
     advisory_notes: normalizeStringList(advisoryNotes),
   };
+}
+
+function summaryRelationFieldsAreInvalid(summary) {
+  const hasRelationFields = Boolean(summary.primary_relation_key)
+    || summary.triggering_relation_keys.length > 0
+    || summary.related_plan_refs.length > 0;
+
+  if (RELATIONLESS_STATUSES.has(summary.coordination_status)) {
+    return hasRelationFields;
+  }
+
+  return !summary.primary_relation_key;
 }
 
 export function portfolioSummaryDisplay(state, repoRoot) {
@@ -753,8 +718,8 @@ export function portfolioSummaryDisplay(state, repoRoot) {
     primaryRelationKey: summary.primary_relation_key,
     triggeringRelationKeys: summary.triggering_relation_keys,
     relatedPlanRefs: summary.related_plan_refs,
-    portfolioId: summary.portfolio_id,
-    portfolioVersion: summary.portfolio_version,
+    portfolioPlanId: summary.portfolio_plan_id,
+    portfolioPlanVersion: summary.portfolio_plan_version,
     lastRefreshedAt: summary.last_refreshed_at,
     sharedContractRef: summary.shared_contract_ref,
     artifactPath,
@@ -767,8 +732,11 @@ export function portfolioSummaryDisplay(state, repoRoot) {
   const displayInvalid = !summary.summary_valid
     || !artifactPresent
     || !eligible
+    || !envelope
+    || !summary.summary_basis_fingerprint
     || summary.envelope_fingerprint !== envelopeFingerprint
-    || summaryDrift;
+    || summaryDrift
+    || summaryRelationFieldsAreInvalid(summary);
 
   if (displayInvalid) {
     return {

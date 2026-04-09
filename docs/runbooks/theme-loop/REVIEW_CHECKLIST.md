@@ -27,7 +27,7 @@ Use this checklist through `node scripts/theme-harness.mjs review-plan --slug <s
 - `verification_command_concrete` | verification command concrete | `missing_verify_command`
   - `## Test Plan` includes at least one explicit verification command.
 - `portfolio_coordination_envelope_valid` | portfolio coordination envelope valid | `missing_portfolio_coordination_envelope` / `portfolio_coordination_invalid_json` / `portfolio_coordination_missing_required_field` / `portfolio_coordination_raw_token` / `portfolio_coordination_invalid_namespace` / `portfolio_coordination_invalid_value`
-  - `## Portfolio Coordination Envelope` exists as a single fenced `json` object and passes the repo-local Layer 2 contract.
+  - `## Portfolio Coordination Envelope` exists as a single fenced `json` object and passes the mothership-aligned Layer 2 contract, including canonical namespaces and numeric `surface_confidence`.
 
 ## Machine Review Notes
 
